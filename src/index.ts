@@ -34,13 +34,30 @@ const config: Config = {
  */
 const exerciseService = new ExerciseService();
 const mcpServer = new ExerciseMCPServer(exerciseService);
+
+// Use environment variable or construct base URL dynamically
+const getBaseUrl = (): string => {
+  if (process.env.BASE_URL) {
+    return process.env.BASE_URL;
+  }
+
+  if (config.nodeEnv === 'production') {
+    // For Railway, use the provided domain or construct it
+    if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+      return `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+    }
+    // Fallback for other hosting services
+    return `https://fittality-exercises-mcp-production.up.railway.app`;
+  }
+
+  return `http://localhost:${config.port}`;
+};
+
 const authServer = new AuthServer(
   config.oauthClientIdPrefix,
   config.jwtSecret,
   config.oauthTokenExpiry,
-  config.nodeEnv === 'production'
-    ? `https://exercise-mcp-server.railway.app`
-    : `http://localhost:${config.port}`
+  getBaseUrl()
 );
 
 /**
@@ -113,7 +130,20 @@ app.get('/health', (req, res) => {
  */
 app.get('/.well-known/oauth-authorization-server', (req, res) => {
   try {
-    const discovery = authServer.getDiscoveryDocument();
+    // Dynamically construct base URL from request
+    const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    const baseUrl = `${protocol}://${host}`;
+
+    logInfo('OAuth discovery requested', {
+      userAgent: req.headers['user-agent'],
+      host: req.headers.host,
+      forwardedHost: req.headers['x-forwarded-host'],
+      protocol: req.headers['x-forwarded-proto'],
+      constructedBaseUrl: baseUrl
+    });
+
+    const discovery = authServer.getDiscoveryDocumentWithBaseUrl(baseUrl);
     res.json(discovery);
   } catch (error) {
     logError('OAuth discovery failed', error);
@@ -131,11 +161,19 @@ app.post('/oauth/register', async (req, res) => {
   await authServer.registerClient(req, res);
 });
 
+app.options('/oauth/register', (req, res) => {
+  res.status(200).end();
+});
+
 /**
  * OAuth authorization endpoint
  */
 app.get('/oauth/authorize', async (req, res) => {
   await authServer.authorize(req, res);
+});
+
+app.options('/oauth/authorize', (req, res) => {
+  res.status(200).end();
 });
 
 /**
@@ -145,13 +183,19 @@ app.post('/oauth/token', async (req, res) => {
   await authServer.token(req, res);
 });
 
+app.options('/oauth/token', (req, res) => {
+  res.status(200).end();
+});
+
 /**
  * MCP SSE endpoint
  */
 app.get('/mcp/sse', authServer.authenticateToken, async (req, res) => {
   try {
     logInfo('MCP SSE connection requested', {
-      clientId: (req as any).tokenInfo?.client_id
+      clientId: (req as any).tokenInfo?.client_id,
+      userAgent: req.headers['user-agent'],
+      origin: req.headers.origin
     });
 
     // Set SSE headers
@@ -217,7 +261,12 @@ app.post('/mcp/message', authServer.authenticateToken, express.json(), async (re
 /**
  * Root endpoint with API information
  */
-app.get('/', (_req, res) => {
+app.get('/', (req, res) => {
+  logInfo('Root GET endpoint accessed', {
+    userAgent: req.headers['user-agent'],
+    origin: req.headers.origin
+  });
+
   res.json({
     name: 'Exercise MCP Server',
     version: '1.0.0',
@@ -234,7 +283,13 @@ app.get('/', (_req, res) => {
   });
 });
 
-app.post('/', (_req, res) => {
+app.post('/', (req, res) => {
+  logInfo('Root POST endpoint accessed', {
+    userAgent: req.headers['user-agent'],
+    origin: req.headers.origin,
+    body: req.body
+  });
+
   res.json({
     name: 'Exercise MCP Server',
     version: '1.0.0',

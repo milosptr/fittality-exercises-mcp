@@ -59,10 +59,30 @@ export class AuthServer {
   }
 
   /**
+   * OAuth discovery endpoint with dynamic base URL
+   */
+  getDiscoveryDocumentWithBaseUrl(baseUrl: string): OAuthDiscovery {
+    return {
+      authorization_endpoint: `${baseUrl}/oauth/authorize`,
+      token_endpoint: `${baseUrl}/oauth/token`,
+      registration_endpoint: `${baseUrl}/oauth/register`,
+      scopes_supported: ['mcp:read', 'mcp:write'],
+      response_types_supported: ['code'],
+      grant_types_supported: ['authorization_code', 'client_credentials'],
+      token_endpoint_auth_methods_supported: ['client_secret_basic', 'none'],
+    };
+  }
+
+  /**
    * Handle client registration - POST /oauth/register
    */
   async registerClient(req: Request, res: Response): Promise<void> {
     try {
+      logInfo('OAuth client registration requested', {
+        userAgent: req.headers['user-agent'],
+        body: req.body
+      });
+
       const validatedData = ClientRegistrationSchema.parse(req.body);
 
       const clientId = generateClientId(this.config.clientIdPrefix);
@@ -84,7 +104,10 @@ export class AuthServer {
 
       res.json(registration);
     } catch (error) {
-      logError('Client registration failed', error, { body: req.body });
+      logError('Client registration failed', error, {
+        body: req.body,
+        userAgent: req.headers['user-agent']
+      });
       res.status(400).json({
         error: 'invalid_request',
         error_description: 'Invalid client registration data',
@@ -147,11 +170,20 @@ export class AuthServer {
    */
   async token(req: Request, res: Response): Promise<void> {
     try {
+      logInfo('OAuth token requested', {
+        userAgent: req.headers['user-agent'],
+        body: req.body
+      });
+
       const validatedData = TokenRequestSchema.parse(req.body);
 
       // Validate client
       const client = this.clients.get(validatedData.client_id);
       if (!client) {
+        logError('OAuth token request failed - unknown client', null, {
+          clientId: validatedData.client_id,
+          userAgent: req.headers['user-agent']
+        });
         res.status(401).json({
           error: 'invalid_client',
           error_description: 'Unknown client',
