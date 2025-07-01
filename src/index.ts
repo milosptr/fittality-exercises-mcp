@@ -4,15 +4,14 @@ import express from 'express';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import {
   CallToolRequestSchema,
   ErrorCode,
   ListResourcesRequestSchema,
   ListToolsRequestSchema,
   McpError,
-  ReadResourceRequestSchema,
-  isInitializeRequest
+  ReadResourceRequestSchema
 } from '@modelcontextprotocol/sdk/types.js';
 import { ExerciseService } from './exerciseService.js';
 import {
@@ -26,12 +25,14 @@ import {
 import { logWithTimestamp } from './utils.js';
 
 /**
- * MCP Exercise Database Server
+ * MCP Exercise Database Server (Web Compatible)
  * Provides access to 1300+ exercises through search tools and resources
+ * Compatible with Claude web integrations via SSE transport
  */
 class ExerciseMcpServer {
   private server: Server;
   private exerciseService: ExerciseService;
+  private transports: { [sessionId: string]: SSEServerTransport } = {};
 
   constructor() {
     this.server = new Server(
@@ -531,152 +532,209 @@ class ExerciseMcpServer {
   }
 
   /**
-   * Start the MCP server with HTTP transport
+   * Start the MCP server with SSE transport (Claude web compatible)
    */
   async start(port: number = 3000): Promise<void> {
     const app = express();
 
-    // Middleware
+    // Enhanced CORS configuration for Claude web integration
     app.use(
       cors({
-        origin: ['*'],
-        exposedHeaders: ['mcp-session-id'],
-        allowedHeaders: ['Content-Type', 'mcp-session-id']
+        origin: [
+          'https://claude.ai',
+          'https://*.anthropic.com',
+          'https://*.claude.ai',
+          'http://localhost:3000',
+          'http://127.0.0.1:3000',
+          'http://localhost:*',
+          'http://127.0.0.1:*'
+        ],
+        credentials: true,
+        exposedHeaders: ['Authorization', 'Content-Type'],
+        allowedHeaders: ['Authorization', 'Content-Type', 'X-Requested-With', 'Accept', 'Origin']
       })
     );
     app.use(express.json());
 
-    // Map to store transports by session ID
-    const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+    // OAuth Discovery Endpoint (required by Claude web integration)
+    app.get('/.well-known/oauth-authorization-server', (req, res) => {
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      res.json({
+        authorization_endpoint: `${baseUrl}/auth`,
+        token_endpoint: `${baseUrl}/token`,
+        registration_endpoint: `${baseUrl}/register`,
+        scopes_supported: ['mcp'],
+        response_types_supported: ['code'],
+        grant_types_supported: ['authorization_code'],
+        issuer: baseUrl
+      });
+    });
+
+    // Client Registration Endpoint (OAuth Dynamic Registration)
+    app.post('/register', (req, res) => {
+      const clientId = randomUUID();
+      const clientSecret = randomUUID();
+
+      logWithTimestamp(`Client registration request: ${JSON.stringify(req.body)}`);
+
+      res.json({
+        client_id: clientId,
+        client_secret: clientSecret,
+        client_id_issued_at: Math.floor(Date.now() / 1000),
+        grant_types: ['authorization_code'],
+        response_types: ['code'],
+        scope: 'mcp'
+      });
+    });
+
+    // OAuth Authorization Endpoint (simplified, auto-approve)
+    app.get('/auth', (req, res) => {
+      const { client_id, redirect_uri, state, response_type } = req.query;
+
+      if (response_type !== 'code') {
+        return res.status(400).json({ error: 'unsupported_response_type' });
+      }
+
+      const authCode = randomUUID();
+      const redirectUrl = new URL(redirect_uri as string);
+      redirectUrl.searchParams.set('code', authCode);
+      if (state) {
+        redirectUrl.searchParams.set('state', state as string);
+      }
+
+      logWithTimestamp(`Authorization granted for client: ${client_id}`);
+      return res.redirect(redirectUrl.toString());
+    });
+
+    // OAuth Token Endpoint
+    app.post('/token', (req, res) => {
+      const { grant_type, code, client_id, client_secret } = req.body;
+
+      if (grant_type !== 'authorization_code') {
+        return res.status(400).json({ error: 'unsupported_grant_type' });
+      }
+
+      // Validate required parameters
+      if (!code || !client_id || !client_secret) {
+        return res.status(400).json({ error: 'invalid_request' });
+      }
+
+      const accessToken = randomUUID();
+
+      logWithTimestamp(`Token issued for client: ${client_id} with code: ${code}`);
+
+      res.json({
+        access_token: accessToken,
+        token_type: 'Bearer',
+        expires_in: 3600,
+        scope: 'mcp'
+      });
+    });
 
     // Health check endpoint
-    app.get('/health', (_req, res) => {
+    app.get('/health', (req, res) => {
       const health = this.getHealthStatus();
       res.json(health);
     });
 
     // Root endpoint
-    app.get('/', (_req, res) => {
+    app.get('/', (req, res) => {
       res.json({
         service: 'Exercise MCP Server',
         version: '1.0.0',
         endpoints: {
-          mcp: '/mcp',
-          health: '/health'
+          sse: '/sse',
+          health: '/health',
+          oauth: '/.well-known/oauth-authorization-server'
         },
-        status: 'running'
+        status: 'running',
+        compatible: 'Claude Web Integration'
       });
     });
 
-    // Main MCP endpoint for client-to-server communication
-    app.post('/mcp', async (req, res) => {
+    // SSE endpoint for establishing connections
+    app.get('/sse', async (req, res) => {
       try {
-        // Check for existing session ID
-        const sessionId = req.headers['mcp-session-id'] as string | undefined;
-        let transport: StreamableHTTPServerTransport;
+        logWithTimestamp('SSE connection request received');
 
-        if (sessionId && transports[sessionId]) {
-          // Reuse existing transport
-          transport = transports[sessionId];
-        } else if (!sessionId && isInitializeRequest(req.body)) {
-          // New initialization request
-          transport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: () => randomUUID(),
-            onsessioninitialized: (sessionId) => {
-              // Store the transport by session ID
-              transports[sessionId] = transport;
-              logWithTimestamp(`New session initialized: ${sessionId}`);
-            }
-          });
+        // Create new SSE transport for this connection
+        const transport = new SSEServerTransport('/messages', res);
+        const sessionId = transport.sessionId;
 
-          // Clean up transport when closed
-          transport.onclose = () => {
-            if (transport.sessionId) {
-              logWithTimestamp(`Session closed: ${transport.sessionId}`);
-              delete transports[transport.sessionId];
-            }
-          };
+        // Store transport
+        this.transports[sessionId] = transport;
 
-          // Connect to the MCP server
-          await this.server.connect(transport);
-        } else {
-          // Invalid request
-          res.status(400).json({
-            jsonrpc: '2.0',
-            error: {
-              code: -32000,
-              message: 'Bad Request: No valid session ID provided'
-            },
-            id: null
-          });
-          return;
-        }
+        // Clean up on connection close
+        res.on('close', () => {
+          logWithTimestamp(`SSE connection closed: ${sessionId}`);
+          delete this.transports[sessionId];
+        });
 
-        // Handle the request
-        await transport.handleRequest(req, res, req.body);
+        res.on('error', (error) => {
+          logWithTimestamp(`SSE connection error: ${error}`, 'error');
+          delete this.transports[sessionId];
+        });
+
+        // Connect MCP server to transport
+        await this.server.connect(transport);
+
+        logWithTimestamp(`SSE connection established: ${sessionId}`);
       } catch (error) {
-        logWithTimestamp(`Error handling MCP request: ${error}`, 'error');
+        logWithTimestamp(`Error establishing SSE connection: ${error}`, 'error');
         if (!res.headersSent) {
-          res.status(500).json({
-            jsonrpc: '2.0',
-            error: {
-              code: -32603,
-              message: 'Internal server error'
-            },
-            id: null
-          });
+          res.status(500).json({ error: 'Failed to establish SSE connection' });
         }
       }
     });
 
-    // Handle GET requests for server-to-client notifications via SSE
-    app.get('/mcp', async (req, res) => {
-      const sessionId = req.headers['mcp-session-id'] as string | undefined;
-      if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
-        return;
+    // Messages endpoint for client-to-server communication
+    app.post('/messages', async (req, res) => {
+      try {
+        const sessionId = req.query.sessionId as string;
+
+        if (!sessionId) {
+          return res.status(400).json({ error: 'Missing sessionId' });
+        }
+
+        const transport = this.transports[sessionId];
+        if (!transport) {
+          return res.status(400).json({ error: 'Invalid sessionId' });
+        }
+
+        logWithTimestamp(`Message received for session ${sessionId}: ${JSON.stringify(req.body)}`);
+
+        // Handle the message through the transport
+        await transport.handlePostMessage(req, res, req.body);
+      } catch (error) {
+        logWithTimestamp(`Error handling message: ${error}`, 'error');
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Internal server error' });
+        }
       }
-
-      const transport = transports[sessionId];
-      await transport.handleRequest(req, res);
-    });
-
-    // Handle DELETE requests for session termination
-    app.delete('/mcp', async (req, res) => {
-      const sessionId = req.headers['mcp-session-id'] as string | undefined;
-      if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
-        return;
-      }
-
-      const transport = transports[sessionId];
-      await transport.handleRequest(req, res);
-
-      // Clean up the session
-      delete transports[sessionId];
-      logWithTimestamp(`Session terminated: ${sessionId}`);
     });
 
     // Start the HTTP server
     const server = app.listen(port, () => {
       logWithTimestamp(`Exercise MCP Server running at http://localhost:${port}`);
-      logWithTimestamp('Available endpoints:');
-      logWithTimestamp(`  - POST http://localhost:${port}/mcp   (MCP requests)`);
-      logWithTimestamp(`  - GET  http://localhost:${port}/mcp   (SSE notifications)`);
-      logWithTimestamp(`  - GET  http://localhost:${port}/health (Health check)`);
+      logWithTimestamp('Claude Web Integration Compatible Endpoints:');
+      logWithTimestamp(`  - GET  http://localhost:${port}/sse              (SSE Connection)`);
+      logWithTimestamp(`  - POST http://localhost:${port}/messages         (MCP Messages)`);
+      logWithTimestamp(`  - GET  http://localhost:${port}/.well-known/oauth-authorization-server (OAuth Discovery)`);
+      logWithTimestamp(`  - POST http://localhost:${port}/register         (Client Registration)`);
+      logWithTimestamp(`  - GET  http://localhost:${port}/health           (Health Check)`);
     });
 
     // Add graceful shutdown
     const gracefulShutdown = async (signal: string) => {
       logWithTimestamp(`Received ${signal}, shutting down gracefully...`);
 
-      // Close all active sessions
-      for (const [sessionId, transport] of Object.entries(transports)) {
+      // Close all active SSE connections
+      for (const [sessionId, transport] of Object.entries(this.transports)) {
         try {
           await transport.close();
-          logWithTimestamp(`Closed session: ${sessionId}`);
+          logWithTimestamp(`Closed SSE connection: ${sessionId}`);
         } catch (error) {
-          logWithTimestamp(`Error closing session ${sessionId}: ${error}`, 'warn');
+          logWithTimestamp(`Error closing SSE connection ${sessionId}: ${error}`, 'warn');
         }
       }
 
@@ -696,10 +754,14 @@ class ExerciseMcpServer {
    */
   getHealthStatus(): {
     server: string;
+    transport: string;
+    activeConnections: number;
     exerciseService: ReturnType<ExerciseService['getHealthStatus']>;
   } {
     return {
       server: 'running',
+      transport: 'SSE (Claude Web Compatible)',
+      activeConnections: Object.keys(this.transports).length,
       exerciseService: this.exerciseService.getHealthStatus()
     };
   }
