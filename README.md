@@ -8,6 +8,7 @@ A production-ready Model Context Protocol (MCP) server that provides Claude AI a
 - **Advanced Search**: Multi-field filtering with relevance scoring and fuzzy matching
 - **Rich Metadata**: Equipment types, muscle groups, categories, and Apple HealthKit integration
 - **Fast Performance**: In-memory indexes for sub-millisecond search responses
+- **Web Server**: HTTP/HTTPS API with Streamable HTTP transport
 - **Production Ready**: TypeScript, comprehensive error handling, and graceful shutdown
 
 ## Installation
@@ -22,9 +23,11 @@ npm install
 # Build the project
 npm run build
 
-# Start the server
+# Start the web server
 npm start
 ```
+
+The server will start on `http://127.0.0.1:3000` by default.
 
 ## Development
 
@@ -37,6 +40,65 @@ npm test
 
 # Clean build artifacts
 npm run clean
+```
+
+## Configuration
+
+### Environment Variables
+
+- `PORT`: HTTP server port (default: 3000)
+- `NODE_ENV`: Environment (development/production)
+- `EXERCISE_DATA_PATH`: Custom path to exercises.json file
+
+### Example
+
+```bash
+# Start on custom port
+PORT=8080 npm start
+
+# Development with custom port
+PORT=8080 npm run dev
+```
+
+## HTTP API Endpoints
+
+### Core Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/mcp` | Main MCP communication endpoint |
+| `GET` | `/mcp` | Server-sent events for notifications |
+| `DELETE` | `/mcp` | Session termination |
+| `GET` | `/health` | Health check and status |
+
+### MCP Session Management
+
+The server uses **Streamable HTTP** transport with session management:
+
+1. **Initialize**: Send a POST request to `/mcp` with MCP initialization
+2. **Session ID**: Server returns a session ID in the `mcp-session-id` header
+3. **Subsequent requests**: Include the session ID in all future requests
+4. **Cleanup**: Send DELETE request to terminate the session
+
+### Example Usage
+
+```bash
+# Health check
+curl http://127.0.0.1:3000/health
+
+# Initialize MCP session
+curl -X POST http://127.0.0.1:3000/mcp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2024-11-05",
+      "capabilities": {},
+      "clientInfo": {"name": "test-client", "version": "1.0.0"}
+    }
+  }'
 ```
 
 ## MCP Resources
@@ -201,7 +263,9 @@ interface Exercise {
 - **Cold start**: ~200ms (loading and indexing 1300 exercises)
 - **Search response**: <5ms for most queries
 - **Memory usage**: ~50MB for full dataset with indexes
-- **Concurrent requests**: Fully asynchronous, supports high concurrency
+- **HTTP server**: Express.js with async handlers
+- **Concurrent sessions**: Multiple MCP sessions supported
+- **Horizontal scaling**: Stateless design allows load balancing
 
 ## Error Handling
 
@@ -212,23 +276,36 @@ The server provides comprehensive error handling with standardized MCP error res
 - **Internal Errors**: Graceful handling with informative error messages
 - **Service Unavailable**: Health checks and initialization status
 
-## Configuration
-
-### Environment Variables
-
-- `NODE_ENV`: Environment (development/production)
-- `EXERCISE_DATA_PATH`: Custom path to exercises.json file
-- `LOG_LEVEL`: Logging verbosity (info/warn/error)
-
-### Data Location
+## Data Location
 
 By default, the server looks for exercise data in:
 - `./data/exercises.json`
 - `./data/availableAppleCategories.json`
 
+## Security
+
+- **CORS**: Configured for local development (`localhost`, `127.0.0.1`)
+- **Session management**: Secure session ID generation using `crypto.randomUUID()`
+- **Input validation**: All inputs validated with Zod schemas
+- **Error handling**: Comprehensive error responses without information leakage
+
 ## Integration with Claude
 
-This MCP server is designed to be used with Claude AI applications. Once connected, Claude can:
+This MCP server can be used with Claude AI applications via HTTP transport. Configure Claude to connect to:
+
+```json
+{
+  "mcpServers": {
+    "exercise-server": {
+      "transport": "http",
+      "url": "http://127.0.0.1:3000/mcp",
+      "timeout": 30000
+    }
+  }
+}
+```
+
+Once connected, Claude can:
 
 1. **Search for exercises** based on user requirements (equipment, goals, muscles)
 2. **Get detailed exercise information** including step-by-step instructions
@@ -256,6 +333,62 @@ search_exercises({
 get_exercise_by_id({
   id: "874ce7a1-2022-449f-92c4-742c17be51bb"
 })
+```
+
+## HTTP Client Examples
+
+### Python
+```python
+import requests
+
+# Initialize session
+response = requests.post('http://127.0.0.1:3000/mcp', json={
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {},
+        "clientInfo": {"name": "python-client", "version": "1.0.0"}
+    }
+})
+
+session_id = response.headers.get('mcp-session-id')
+
+# Call tool
+tool_response = requests.post('http://127.0.0.1:3000/mcp',
+    headers={'mcp-session-id': session_id},
+    json={
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "search_exercises",
+            "arguments": {"equipment": "dumbbells", "limit": 5}
+        }
+    }
+)
+```
+
+### JavaScript/Node.js
+```javascript
+const response = await fetch('http://127.0.0.1:3000/mcp', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'js-client', version: '1.0.0' }
+    }
+  })
+});
+
+const sessionId = response.headers.get('mcp-session-id');
+// Continue with session ID for subsequent requests...
 ```
 
 ## Architecture

@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 
+import express from 'express';
+import cors from 'cors';
+import { randomUUID } from 'crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   CallToolRequestSchema,
   ErrorCode,
   ListResourcesRequestSchema,
   ListToolsRequestSchema,
   McpError,
-  ReadResourceRequestSchema
+  ReadResourceRequestSchema,
+  isInitializeRequest
 } from '@modelcontextprotocol/sdk/types.js';
 import { ExerciseService } from './exerciseService.js';
 import {
@@ -539,27 +543,149 @@ class ExerciseMcpServer {
   }
 
   /**
-   * Start the MCP server
+   * Start the MCP server with HTTP transport
    */
-  async start(): Promise<void> {
-    const transport = new StdioServerTransport();
+  async start(port: number = 3000): Promise<void> {
+    const app = express();
+
+    // Middleware
+    app.use(cors({
+      origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+      exposedHeaders: ['mcp-session-id'],
+      allowedHeaders: ['Content-Type', 'mcp-session-id'],
+    }));
+    app.use(express.json());
+
+    // Map to store transports by session ID
+    const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+
+         // Health check endpoint
+     app.get('/health', (_req, res) => {
+       const health = this.getHealthStatus();
+       res.json(health);
+     });
+
+    // Main MCP endpoint for client-to-server communication
+    app.post('/mcp', async (req, res) => {
+      try {
+        // Check for existing session ID
+        const sessionId = req.headers['mcp-session-id'] as string | undefined;
+        let transport: StreamableHTTPServerTransport;
+
+        if (sessionId && transports[sessionId]) {
+          // Reuse existing transport
+          transport = transports[sessionId];
+        } else if (!sessionId && isInitializeRequest(req.body)) {
+                     // New initialization request
+           transport = new StreamableHTTPServerTransport({
+             sessionIdGenerator: () => randomUUID(),
+             onsessioninitialized: (sessionId) => {
+               // Store the transport by session ID
+               transports[sessionId] = transport;
+               logWithTimestamp(`New session initialized: ${sessionId}`);
+             }
+           });
+
+          // Clean up transport when closed
+          transport.onclose = () => {
+            if (transport.sessionId) {
+              logWithTimestamp(`Session closed: ${transport.sessionId}`);
+              delete transports[transport.sessionId];
+            }
+          };
+
+          // Connect to the MCP server
+          await this.server.connect(transport);
+        } else {
+          // Invalid request
+          res.status(400).json({
+            jsonrpc: '2.0',
+            error: {
+              code: -32000,
+              message: 'Bad Request: No valid session ID provided',
+            },
+            id: null,
+          });
+          return;
+        }
+
+        // Handle the request
+        await transport.handleRequest(req, res, req.body);
+      } catch (error) {
+        logWithTimestamp(`Error handling MCP request: ${error}`, 'error');
+        if (!res.headersSent) {
+          res.status(500).json({
+            jsonrpc: '2.0',
+            error: {
+              code: -32603,
+              message: 'Internal server error',
+            },
+            id: null,
+          });
+        }
+      }
+    });
+
+    // Handle GET requests for server-to-client notifications via SSE
+    app.get('/mcp', async (req, res) => {
+      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      if (!sessionId || !transports[sessionId]) {
+        res.status(400).send('Invalid or missing session ID');
+        return;
+      }
+
+      const transport = transports[sessionId];
+      await transport.handleRequest(req, res);
+    });
+
+    // Handle DELETE requests for session termination
+    app.delete('/mcp', async (req, res) => {
+      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      if (!sessionId || !transports[sessionId]) {
+        res.status(400).send('Invalid or missing session ID');
+        return;
+      }
+
+      const transport = transports[sessionId];
+      await transport.handleRequest(req, res);
+
+      // Clean up the session
+      delete transports[sessionId];
+      logWithTimestamp(`Session terminated: ${sessionId}`);
+    });
+
+         // Start the HTTP server
+     const server = app.listen(port, '127.0.0.1', () => {
+       logWithTimestamp(`Exercise MCP Server running at http://127.0.0.1:${port}`);
+       logWithTimestamp('Available endpoints:');
+       logWithTimestamp(`  - POST http://127.0.0.1:${port}/mcp   (MCP requests)`);
+       logWithTimestamp(`  - GET  http://127.0.0.1:${port}/mcp   (SSE notifications)`);
+       logWithTimestamp(`  - GET  http://127.0.0.1:${port}/health (Health check)`);
+     });
 
     // Add graceful shutdown
-    process.on('SIGINT', async () => {
-      logWithTimestamp('Received SIGINT, shutting down gracefully...');
-      await this.server.close();
-      process.exit(0);
-    });
+    const gracefulShutdown = async (signal: string) => {
+      logWithTimestamp(`Received ${signal}, shutting down gracefully...`);
 
-    process.on('SIGTERM', async () => {
-      logWithTimestamp('Received SIGTERM, shutting down gracefully...');
-      await this.server.close();
-      process.exit(0);
-    });
+      // Close all active sessions
+      for (const [sessionId, transport] of Object.entries(transports)) {
+        try {
+          await transport.close();
+          logWithTimestamp(`Closed session: ${sessionId}`);
+        } catch (error) {
+          logWithTimestamp(`Error closing session ${sessionId}: ${error}`, 'warn');
+        }
+      }
 
-    logWithTimestamp('Starting MCP server...');
-    await this.server.connect(transport);
-    logWithTimestamp('MCP server started and listening');
+      // Close the HTTP server
+      server.close(() => {
+        logWithTimestamp('HTTP server closed');
+        process.exit(0);
+      });
+    };
+
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   }
 
   /**
@@ -581,10 +707,11 @@ class ExerciseMcpServer {
  */
 async function main(): Promise<void> {
   const server = new ExerciseMcpServer();
+  const port = parseInt(process.env.PORT || '3000');
 
   try {
     await server.initialize();
-    await server.start();
+    await server.start(port);
   } catch (error) {
     logWithTimestamp(`Fatal error: ${error}`, 'error');
     process.exit(1);
