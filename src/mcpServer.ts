@@ -13,11 +13,8 @@ import {
   GetExercisesByCategoryParams,
   FindExerciseAlternativesParams,
   ValidateExerciseKeysParams,
-  ExerciseNotFoundError,
-  InvalidSearchParamsError,
 } from './types.js';
 import {
-  createMCPError,
   parsePaginationParams,
   sanitizeString,
   logInfo,
@@ -296,36 +293,8 @@ export class ExerciseMCPServer {
           args: request.params.arguments
         });
 
-        if (error instanceof ExerciseNotFoundError) {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify(createMCPError(404, error.message)),
-              },
-            ],
-          };
-        }
-
-        if (error instanceof InvalidSearchParamsError) {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: JSON.stringify(createMCPError(400, error.message)),
-              },
-            ],
-          };
-        }
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(createMCPError(500, 'Internal server error')),
-            },
-          ],
-        };
+        // Let the MCP framework handle errors properly instead of wrapping in content
+        throw error;
       }
     });
 
@@ -355,15 +324,8 @@ export class ExerciseMCPServer {
       } catch (error) {
         logError('Resource read failed', error, { uri });
 
-        return {
-          contents: [
-            {
-              uri,
-              mimeType: 'application/json',
-              text: JSON.stringify(createMCPError(500, 'Failed to read resource')),
-            },
-          ],
-        };
+        // Let the MCP framework handle errors properly instead of wrapping in content
+        throw error;
       }
     });
   }
@@ -384,6 +346,10 @@ export class ExerciseMCPServer {
   }
 
   private async handleGetExerciseById(args: any) {
+    if (!args.id || typeof args.id !== 'string') {
+      throw new Error('Exercise ID is required and must be a string');
+    }
+
     const { id } = args as GetExerciseByIdParams;
     const exercise = this.exerciseService.getExerciseById(sanitizeString(id));
 
@@ -398,6 +364,10 @@ export class ExerciseMCPServer {
   }
 
   private async handleFilterExercisesByEquipment(args: any) {
+    if (!args.equipment || typeof args.equipment !== 'string') {
+      throw new Error('Equipment parameter is required and must be a string');
+    }
+
     const { equipment, limit = 20, offset = 0 } = args as FilterExercisesByEquipmentParams;
     const result = this.exerciseService.filterExercisesByEquipment(
       sanitizeString(equipment),
@@ -416,6 +386,10 @@ export class ExerciseMCPServer {
   }
 
   private async handleGetExercisesByCategory(args: any) {
+    if (!args.category || typeof args.category !== 'string') {
+      throw new Error('Category parameter is required and must be a string');
+    }
+
     const { category, limit = 20, offset = 0 } = args as GetExercisesByCategoryParams;
     const result = this.exerciseService.getExercisesByCategory(
       sanitizeString(category),
@@ -434,6 +408,10 @@ export class ExerciseMCPServer {
   }
 
   private async handleFindExerciseAlternatives(args: any) {
+    if (!args.exerciseId || typeof args.exerciseId !== 'string') {
+      throw new Error('Exercise ID is required and must be a string');
+    }
+
     const {
       exerciseId,
       targetMuscles,
@@ -459,6 +437,10 @@ export class ExerciseMCPServer {
   }
 
   private async handleValidateExerciseKeys(args: any) {
+    if (!args.exerciseIds || !Array.isArray(args.exerciseIds)) {
+      throw new Error('Exercise IDs parameter is required and must be an array');
+    }
+
     const { exerciseIds } = args as ValidateExerciseKeysParams;
     const result = this.exerciseService.validateExerciseKeys(
       exerciseIds.map(id => sanitizeString(id))
