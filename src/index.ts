@@ -545,7 +545,7 @@ class ExerciseMcpServer {
   /**
    * Start the MCP server with HTTP transport
    */
-  async start(port: number = 3000, host: string = 'localhost'): Promise<void> {
+  async start(port: number = 3000): Promise<void> {
     const app = express();
 
     // Middleware
@@ -655,12 +655,12 @@ class ExerciseMcpServer {
     });
 
      // Start the HTTP server
-     const server = app.listen(port, host, () => {
-       logWithTimestamp(`Exercise MCP Server running at https://${host}:${port}`);
+     const server = app.listen(port, () => {
+       logWithTimestamp(`Exercise MCP Server running at http://localhost:${port}`);
        logWithTimestamp('Available endpoints:');
-       logWithTimestamp(`  - POST https://${host}:${port}/mcp   (MCP requests)`);
-       logWithTimestamp(`  - GET  https://${host}:${port}/mcp   (SSE notifications)`);
-       logWithTimestamp(`  - GET  https://${host}:${port}/health (Health check)`);
+       logWithTimestamp(`  - POST http://localhost:${port}/mcp   (MCP requests)`);
+       logWithTimestamp(`  - GET  http://localhost:${port}/mcp   (SSE notifications)`);
+       logWithTimestamp(`  - GET  http://localhost:${port}/health (Health check)`);
      });
 
     // Add graceful shutdown
@@ -708,13 +708,10 @@ class ExerciseMcpServer {
 async function main(): Promise<void> {
   const server = new ExerciseMcpServer();
   const port = parseInt(process.env.PORT || '3000');
-  const host = process.env.RAILWAY_PUBLIC_DOMAIN || 'localhost';
-  const privateHost = process.env.RAILWAY_PRIVATE_DOMAIN || 'localhost';
 
   try {
     await server.initialize();
-    await server.start(port, host);
-    await server.start(port, privateHost);
+    await server.start(port);
   } catch (error) {
     logWithTimestamp(`Fatal error: ${error}`, 'error');
     process.exit(1);
