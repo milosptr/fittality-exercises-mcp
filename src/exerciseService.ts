@@ -103,7 +103,9 @@ export class ExerciseService {
       }
     }
 
-    logWithTimestamp(`Built indexes: ${this.categoryIndex.size} categories, ${this.equipmentIndex.size} equipment types, ${this.primaryMuscleIndex.size} primary muscles`);
+    logWithTimestamp(
+      `Built indexes: ${this.categoryIndex.size} categories, ${this.equipmentIndex.size} equipment types, ${this.primaryMuscleIndex.size} primary muscles`
+    );
   }
 
   /**
@@ -156,64 +158,64 @@ export class ExerciseService {
   searchExercises(params: SearchParams): SearchResult {
     this.ensureInitialized();
 
-    let candidateIds = new Set<string>(this.exercises.map(e => e.id));
+    let candidateIds = new Set<string>(this.exercises.map((e) => e.id));
 
     // Apply filters to narrow down candidates
     if (params.equipment) {
       const equipmentIds = this.equipmentIndex.get(params.equipment.toLowerCase()) || [];
-      candidateIds = new Set(equipmentIds.filter(id => candidateIds.has(id)));
+      candidateIds = new Set(equipmentIds.filter((id) => candidateIds.has(id)));
     }
 
     if (params.category) {
       const categoryIds = this.categoryIndex.get(params.category.toLowerCase()) || [];
-      candidateIds = new Set(categoryIds.filter(id => candidateIds.has(id)));
+      candidateIds = new Set(categoryIds.filter((id) => candidateIds.has(id)));
     }
 
     if (params.bodyPart) {
       const bodyPartIds = this.bodyPartIndex.get(params.bodyPart.toLowerCase()) || [];
-      candidateIds = new Set(bodyPartIds.filter(id => candidateIds.has(id)));
+      candidateIds = new Set(bodyPartIds.filter((id) => candidateIds.has(id)));
     }
 
     if (params.appleCategory) {
       const appleCategoryIds = this.appleCategoryIndex.get(params.appleCategory.toLowerCase()) || [];
-      candidateIds = new Set(appleCategoryIds.filter(id => candidateIds.has(id)));
+      candidateIds = new Set(appleCategoryIds.filter((id) => candidateIds.has(id)));
     }
 
     if (params.primaryMuscles && params.primaryMuscles.length > 0) {
       const muscleIds = new Set<string>();
       for (const muscle of params.primaryMuscles) {
         const ids = this.primaryMuscleIndex.get(muscle.toLowerCase()) || [];
-        ids.forEach(id => muscleIds.add(id));
+        ids.forEach((id) => muscleIds.add(id));
       }
-      candidateIds = new Set([...candidateIds].filter(id => muscleIds.has(id)));
+      candidateIds = new Set([...candidateIds].filter((id) => muscleIds.has(id)));
     }
 
     if (params.secondaryMuscles && params.secondaryMuscles.length > 0) {
       const muscleIds = new Set<string>();
       for (const muscle of params.secondaryMuscles) {
         const ids = this.secondaryMuscleIndex.get(muscle.toLowerCase()) || [];
-        ids.forEach(id => muscleIds.add(id));
+        ids.forEach((id) => muscleIds.add(id));
       }
-      candidateIds = new Set([...candidateIds].filter(id => muscleIds.has(id)));
+      candidateIds = new Set([...candidateIds].filter((id) => muscleIds.has(id)));
     }
 
     // Get candidate exercises
     const candidates = [...candidateIds]
-      .map(id => this.exerciseIndex.get(id))
+      .map((id) => this.exerciseIndex.get(id))
       .filter((exercise): exercise is Exercise => exercise !== undefined);
 
     // Apply text search and scoring if query is provided
     let searchResults = candidates;
     if (params.query && params.query.trim()) {
       const scoredResults = candidates
-        .map(exercise => ({
+        .map((exercise) => ({
           exercise,
           score: scoreExerciseRelevance(exercise, params.query!)
         }))
-        .filter(result => result.score.score > 0)
+        .filter((result) => result.score.score > 0)
         .sort((a, b) => b.score.score - a.score.score);
 
-      searchResults = scoredResults.map(result => result.exercise);
+      searchResults = scoredResults.map((result) => result.exercise);
     }
 
     // Apply pagination
@@ -238,7 +240,7 @@ export class ExerciseService {
 
     const exerciseIds = this.equipmentIndex.get(equipment.toLowerCase()) || [];
     const exercises = exerciseIds
-      .map(id => this.exerciseIndex.get(id))
+      .map((id) => this.exerciseIndex.get(id))
       .filter((exercise): exercise is Exercise => exercise !== undefined);
 
     const result = paginateArray(exercises, offset, limit);
@@ -260,7 +262,7 @@ export class ExerciseService {
 
     const exerciseIds = this.categoryIndex.get(category.toLowerCase()) || [];
     const exercises = exerciseIds
-      .map(id => this.exerciseIndex.get(id))
+      .map((id) => this.exerciseIndex.get(id))
       .filter((exercise): exercise is Exercise => exercise !== undefined);
 
     const result = paginateArray(exercises, offset, limit);
@@ -290,25 +292,25 @@ export class ExerciseService {
 
     // Find exercises with similar muscles
     const alternatives = this.exercises
-      .filter(exercise => exercise.id !== exerciseId) // Exclude original
-      .filter(exercise => {
+      .filter((exercise) => exercise.id !== exerciseId) // Exclude original
+      .filter((exercise) => {
         // Must share at least one primary muscle
         const sharesPrimary = hasCommonElements(exercise.primaryMuscles, searchMuscles);
         // Or have search muscle as secondary while original has it as primary
         const hasAsSecondary = hasCommonElements(exercise.secondaryMuscles, searchMuscles);
         return sharesPrimary || hasAsSecondary;
       })
-      .filter(exercise => {
+      .filter((exercise) => {
         // If equipment filter is specified, must match
         return !equipment || exercise.equipment.toLowerCase() === equipment.toLowerCase();
       })
-      .map(exercise => ({
+      .map((exercise) => ({
         exercise,
         similarity: calculateExerciseSimilarity(originalExercise, exercise)
       }))
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, limit)
-      .map(result => result.exercise);
+      .map((result) => result.exercise);
 
     return {
       original: originalExercise,

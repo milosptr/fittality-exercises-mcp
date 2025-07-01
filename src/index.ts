@@ -37,13 +37,13 @@ class ExerciseMcpServer {
     this.server = new Server(
       {
         name: 'exercise-mcp-server',
-        version: '1.0.0',
+        version: '1.0.0'
       },
       {
         capabilities: {
           resources: {},
-          tools: {},
-        },
+          tools: {}
+        }
       }
     );
 
@@ -219,10 +219,7 @@ class ExerciseMcpServer {
           }
 
           default:
-            throw new McpError(
-              ErrorCode.InvalidRequest,
-              `Unknown resource URI: ${uri}`
-            );
+            throw new McpError(ErrorCode.InvalidRequest, `Unknown resource URI: ${uri}`);
         }
       } catch (error) {
         logWithTimestamp(`Error reading resource ${uri}: ${error}`, 'error');
@@ -428,10 +425,7 @@ class ExerciseMcpServer {
             const exercise = this.exerciseService.getExerciseById(id);
 
             if (!exercise) {
-              throw new McpError(
-                ErrorCode.InvalidRequest,
-                `Exercise with ID ${id} not found`
-              );
+              throw new McpError(ErrorCode.InvalidRequest, `Exercise with ID ${id} not found`);
             }
 
             return {
@@ -497,10 +491,7 @@ class ExerciseMcpServer {
           }
 
           default:
-            throw new McpError(
-              ErrorCode.MethodNotFound,
-              `Unknown tool: ${name}`
-            );
+            throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
         }
       } catch (error) {
         logWithTimestamp(`Error calling tool ${name}: ${error}`, 'error');
@@ -511,10 +502,7 @@ class ExerciseMcpServer {
 
         // Handle validation errors from Zod
         if (error && typeof error === 'object' && 'issues' in error) {
-          throw new McpError(
-            ErrorCode.InvalidParams,
-            `Invalid parameters: ${JSON.stringify((error as any).issues)}`
-          );
+          throw new McpError(ErrorCode.InvalidParams, `Invalid parameters: ${JSON.stringify((error as any).issues)}`);
         }
 
         throw new McpError(
@@ -549,21 +537,36 @@ class ExerciseMcpServer {
     const app = express();
 
     // Middleware
-    app.use(cors({
-      origin: ['*'],
-      exposedHeaders: ['mcp-session-id'],
-      allowedHeaders: ['Content-Type', 'mcp-session-id'],
-    }));
+    app.use(
+      cors({
+        origin: ['*'],
+        exposedHeaders: ['mcp-session-id'],
+        allowedHeaders: ['Content-Type', 'mcp-session-id']
+      })
+    );
     app.use(express.json());
 
     // Map to store transports by session ID
     const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
 
-         // Health check endpoint
-     app.get('/health', (_req, res) => {
-       const health = this.getHealthStatus();
-       res.json(health);
-     });
+    // Health check endpoint
+    app.get('/health', (_req, res) => {
+      const health = this.getHealthStatus();
+      res.json(health);
+    });
+
+    // Root endpoint
+    app.get('/', (_req, res) => {
+      res.json({
+        service: 'Exercise MCP Server',
+        version: '1.0.0',
+        endpoints: {
+          mcp: '/mcp',
+          health: '/health'
+        },
+        status: 'running'
+      });
+    });
 
     // Main MCP endpoint for client-to-server communication
     app.post('/mcp', async (req, res) => {
@@ -576,15 +579,15 @@ class ExerciseMcpServer {
           // Reuse existing transport
           transport = transports[sessionId];
         } else if (!sessionId && isInitializeRequest(req.body)) {
-                     // New initialization request
-           transport = new StreamableHTTPServerTransport({
-             sessionIdGenerator: () => randomUUID(),
-             onsessioninitialized: (sessionId) => {
-               // Store the transport by session ID
-               transports[sessionId] = transport;
-               logWithTimestamp(`New session initialized: ${sessionId}`);
-             }
-           });
+          // New initialization request
+          transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessioninitialized: (sessionId) => {
+              // Store the transport by session ID
+              transports[sessionId] = transport;
+              logWithTimestamp(`New session initialized: ${sessionId}`);
+            }
+          });
 
           // Clean up transport when closed
           transport.onclose = () => {
@@ -602,9 +605,9 @@ class ExerciseMcpServer {
             jsonrpc: '2.0',
             error: {
               code: -32000,
-              message: 'Bad Request: No valid session ID provided',
+              message: 'Bad Request: No valid session ID provided'
             },
-            id: null,
+            id: null
           });
           return;
         }
@@ -618,9 +621,9 @@ class ExerciseMcpServer {
             jsonrpc: '2.0',
             error: {
               code: -32603,
-              message: 'Internal server error',
+              message: 'Internal server error'
             },
-            id: null,
+            id: null
           });
         }
       }
@@ -654,14 +657,14 @@ class ExerciseMcpServer {
       logWithTimestamp(`Session terminated: ${sessionId}`);
     });
 
-     // Start the HTTP server
-     const server = app.listen(port, () => {
-       logWithTimestamp(`Exercise MCP Server running at http://localhost:${port}`);
-       logWithTimestamp('Available endpoints:');
-       logWithTimestamp(`  - POST http://localhost:${port}/mcp   (MCP requests)`);
-       logWithTimestamp(`  - GET  http://localhost:${port}/mcp   (SSE notifications)`);
-       logWithTimestamp(`  - GET  http://localhost:${port}/health (Health check)`);
-     });
+    // Start the HTTP server
+    const server = app.listen(port, () => {
+      logWithTimestamp(`Exercise MCP Server running at http://localhost:${port}`);
+      logWithTimestamp('Available endpoints:');
+      logWithTimestamp(`  - POST http://localhost:${port}/mcp   (MCP requests)`);
+      logWithTimestamp(`  - GET  http://localhost:${port}/mcp   (SSE notifications)`);
+      logWithTimestamp(`  - GET  http://localhost:${port}/health (Health check)`);
+    });
 
     // Add graceful shutdown
     const gracefulShutdown = async (signal: string) => {

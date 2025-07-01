@@ -50,8 +50,8 @@ function levenshteinDistance(str1: string, str2: string): number {
         } else {
           currentRow[j] = Math.min(
             (prevRow[j - 1] ?? 0) + 1, // substitution
-            (currentRow[j - 1] ?? 0) + 1,     // insertion
-            (prevRow[j] ?? 0) + 1      // deletion
+            (currentRow[j - 1] ?? 0) + 1, // insertion
+            (prevRow[j] ?? 0) + 1 // deletion
           );
         }
       }
@@ -160,21 +160,17 @@ export function calculateExerciseSimilarity(exercise1: Exercise, exercise2: Exer
   }
 
   // Shared primary muscles get high similarity
-  const sharedPrimary = exercise1.primaryMuscles.filter(m =>
-    exercise2.primaryMuscles.includes(m)
-  );
+  const sharedPrimary = exercise1.primaryMuscles.filter((m) => exercise2.primaryMuscles.includes(m));
   similarity += sharedPrimary.length * 4;
 
   // Shared secondary muscles get low similarity
-  const sharedSecondary = exercise1.secondaryMuscles.filter(m =>
-    exercise2.secondaryMuscles.includes(m) || exercise2.primaryMuscles.includes(m)
+  const sharedSecondary = exercise1.secondaryMuscles.filter(
+    (m) => exercise2.secondaryMuscles.includes(m) || exercise2.primaryMuscles.includes(m)
   );
   similarity += sharedSecondary.length * 1;
 
   // Primary muscle in secondary muscles gets medium similarity
-  const primaryInSecondary = exercise1.primaryMuscles.filter(m =>
-    exercise2.secondaryMuscles.includes(m)
-  );
+  const primaryInSecondary = exercise1.primaryMuscles.filter((m) => exercise2.secondaryMuscles.includes(m));
   similarity += primaryInSecondary.length * 2;
 
   return similarity;
@@ -183,7 +179,11 @@ export function calculateExerciseSimilarity(exercise1: Exercise, exercise2: Exer
 /**
  * Paginate array with offset and limit
  */
-export function paginateArray<T>(array: T[], offset: number, limit: number): {
+export function paginateArray<T>(
+  array: T[],
+  offset: number,
+  limit: number
+): {
   items: T[];
   hasMore: boolean;
   total: number;
@@ -213,7 +213,7 @@ export function flattenStringArrays(arrays: string[][]): string[] {
  * Check if arrays have any common elements
  */
 export function hasCommonElements(arr1: string[], arr2: string[]): boolean {
-  return arr1.some(item => arr2.includes(item));
+  return arr1.some((item) => arr2.includes(item));
 }
 
 /**
@@ -230,7 +230,11 @@ export function safeJsonParse<T>(jsonString: string, fallback: T): T {
 /**
  * Create error response object
  */
-export function createErrorResponse(message: string, code: string, details?: unknown): {
+export function createErrorResponse(
+  message: string,
+  code: string,
+  details?: unknown
+): {
   error: string;
   code: string;
   details?: unknown;
@@ -256,6 +260,6 @@ export function isValidUUID(uuid: string): boolean {
 export function logWithTimestamp(message: string, level: 'info' | 'warn' | 'error' = 'info'): void {
   const timestamp = new Date().toISOString();
   const logLevel = level.toUpperCase();
-  // eslint-disable-next-line no-console
+
   process.stdout.write(`[${timestamp}] ${logLevel}: ${message}\n`);
 }
