@@ -550,7 +550,7 @@ class ExerciseMcpServer {
 
     // Middleware
     app.use(cors({
-      origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+      origin: ['*'],
       exposedHeaders: ['mcp-session-id'],
       allowedHeaders: ['Content-Type', 'mcp-session-id'],
     }));
