@@ -1,71 +1,96 @@
-import { readFile } from 'fs/promises';
-import { join } from 'path';
-import type {
+import fs from 'fs/promises';
+import path from 'path';
+import {
   Exercise,
   SearchParams,
   SearchResult,
-  AlternativesResult,
-  ValidationResult,
   ExerciseStats,
-  ExerciseIndex,
-  CategoryIndex,
-  EquipmentIndex,
-  MuscleIndex
+  ExerciseNotFoundError,
+  DataLoadError,
+  ValidateExerciseKeysResult,
+  SearchParamsSchema,
+  ExerciseSchema,
 } from './types.js';
 import {
-  scoreExerciseRelevance,
-  calculateExerciseSimilarity,
-  paginateArray,
-  getUniqueValues,
-  hasCommonElements,
-  logWithTimestamp
+  calculateRelevanceScore,
+  extractUniqueValues,
+  fuzzyMatch,
+  isValidUUID,
+  getCurrentTimestamp,
+  logInfo,
+  logError,
 } from './utils.js';
-import { ExerciseSchema } from './types.js';
 
 /**
- * Exercise service class that manages all exercise data and operations
+ * Service class for managing exercise data and operations
  */
 export class ExerciseService {
   private exercises: Exercise[] = [];
-  private exerciseIndex: ExerciseIndex = new Map();
-  private categoryIndex: CategoryIndex = new Map();
-  private equipmentIndex: EquipmentIndex = new Map();
-  private primaryMuscleIndex: MuscleIndex = new Map();
-  private secondaryMuscleIndex: MuscleIndex = new Map();
-  private bodyPartIndex: Map<string, string[]> = new Map();
-  private appleCategoryIndex: Map<string, string[]> = new Map();
-  private isInitialized = false;
+  private categoryIndex: Map<string, Exercise[]> = new Map();
+  private equipmentIndex: Map<string, Exercise[]> = new Map();
+  private muscleIndex: Map<string, Exercise[]> = new Map();
+  private bodyPartIndex: Map<string, Exercise[]> = new Map();
+  private appleCategoryIndex: Map<string, Exercise[]> = new Map();
+  private lastUpdated: string = '';
+  private initialized = false;
 
   /**
    * Initialize the service by loading and indexing exercise data
    */
-  async initialize(dataPath?: string): Promise<void> {
+  async initialize(dataPath: string): Promise<void> {
     try {
-      const exercisesPath = dataPath || join(process.cwd(), 'data', 'exercises.json');
-      logWithTimestamp(`Loading exercises from: ${exercisesPath}`);
+      logInfo('Initializing ExerciseService', { dataPath });
 
-      const exerciseData = await readFile(exercisesPath, 'utf-8');
-      const rawExercises = JSON.parse(exerciseData) as unknown[];
-
-      // Validate and parse exercises
-      this.exercises = rawExercises.map((exercise, index) => {
-        try {
-          return ExerciseSchema.parse(exercise);
-        } catch (error) {
-          logWithTimestamp(`Invalid exercise at index ${index}: ${error}`, 'warn');
-          throw new Error(`Exercise validation failed at index ${index}`);
-        }
-      });
-
-      logWithTimestamp(`Loaded ${this.exercises.length} exercises successfully`);
-
-      // Build search indexes
+      const data = await this.loadExerciseData(dataPath);
+      this.exercises = data;
       this.buildIndexes();
-      this.isInitialized = true;
+      this.lastUpdated = getCurrentTimestamp();
+      this.initialized = true;
 
-      logWithTimestamp('Exercise service initialized successfully');
+      logInfo('ExerciseService initialized successfully', {
+        totalExercises: this.exercises.length,
+        categories: this.categoryIndex.size,
+        equipmentTypes: this.equipmentIndex.size,
+      });
     } catch (error) {
-      logWithTimestamp(`Failed to initialize exercise service: ${error}`, 'error');
+      logError('Failed to initialize ExerciseService', error, { dataPath });
+      throw new DataLoadError(dataPath, error);
+    }
+  }
+
+  /**
+   * Load and validate exercise data from JSON file
+   */
+  private async loadExerciseData(dataPath: string): Promise<Exercise[]> {
+    try {
+      const absolutePath = path.resolve(dataPath);
+      const fileContent = await fs.readFile(absolutePath, 'utf-8');
+      const rawData = JSON.parse(fileContent);
+
+      if (!Array.isArray(rawData)) {
+        throw new Error('Exercise data must be an array');
+      }
+
+      const exercises: Exercise[] = [];
+      for (let i = 0; i < rawData.length; i++) {
+        try {
+          const validatedExercise = ExerciseSchema.parse(rawData[i]);
+          exercises.push(validatedExercise);
+        } catch (validationError) {
+          logError(`Invalid exercise at index ${i}`, validationError, { exercise: rawData[i] });
+          // Continue processing other exercises instead of failing completely
+        }
+      }
+
+      if (exercises.length === 0) {
+        throw new Error('No valid exercises found in data file');
+      }
+
+      return exercises;
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        throw new Error(`Invalid JSON format: ${error.message}`);
+      }
       throw error;
     }
   }
@@ -74,262 +99,297 @@ export class ExerciseService {
    * Build search indexes for fast filtering
    */
   private buildIndexes(): void {
-    logWithTimestamp('Building search indexes...');
+    this.categoryIndex.clear();
+    this.equipmentIndex.clear();
+    this.muscleIndex.clear();
+    this.bodyPartIndex.clear();
+    this.appleCategoryIndex.clear();
 
     for (const exercise of this.exercises) {
-      // Exercise ID index
-      this.exerciseIndex.set(exercise.id, exercise);
-
       // Category index
-      this.addToIndex(this.categoryIndex, exercise.category, exercise.id);
+      if (!this.categoryIndex.has(exercise.category)) {
+        this.categoryIndex.set(exercise.category, []);
+      }
+      this.categoryIndex.get(exercise.category)!.push(exercise);
 
       // Equipment index
-      this.addToIndex(this.equipmentIndex, exercise.equipment, exercise.id);
+      if (!this.equipmentIndex.has(exercise.equipment)) {
+        this.equipmentIndex.set(exercise.equipment, []);
+      }
+      this.equipmentIndex.get(exercise.equipment)!.push(exercise);
 
       // Body part index
-      this.addToIndex(this.bodyPartIndex, exercise.bodyPart, exercise.id);
+      if (!this.bodyPartIndex.has(exercise.bodyPart)) {
+        this.bodyPartIndex.set(exercise.bodyPart, []);
+      }
+      this.bodyPartIndex.get(exercise.bodyPart)!.push(exercise);
 
       // Apple category index
-      this.addToIndex(this.appleCategoryIndex, exercise.appleCategory, exercise.id);
-
-      // Primary muscle index
-      for (const muscle of exercise.primaryMuscles) {
-        this.addToIndex(this.primaryMuscleIndex, muscle, exercise.id);
+      if (!this.appleCategoryIndex.has(exercise.appleCategory)) {
+        this.appleCategoryIndex.set(exercise.appleCategory, []);
       }
+      this.appleCategoryIndex.get(exercise.appleCategory)!.push(exercise);
 
-      // Secondary muscle index
-      for (const muscle of exercise.secondaryMuscles) {
-        this.addToIndex(this.secondaryMuscleIndex, muscle, exercise.id);
+      // Muscle indexes
+      for (const muscle of [...exercise.primaryMuscles, ...exercise.secondaryMuscles]) {
+        if (!this.muscleIndex.has(muscle)) {
+          this.muscleIndex.set(muscle, []);
+        }
+        this.muscleIndex.get(muscle)!.push(exercise);
       }
-    }
-
-    logWithTimestamp(
-      `Built indexes: ${this.categoryIndex.size} categories, ${this.equipmentIndex.size} equipment types, ${this.primaryMuscleIndex.size} primary muscles`
-    );
-  }
-
-  /**
-   * Helper to add items to indexes
-   */
-  private addToIndex(index: Map<string, string[]>, key: string, exerciseId: string): void {
-    const normalizedKey = key.toLowerCase();
-    const existing = index.get(normalizedKey) || [];
-    existing.push(exerciseId);
-    index.set(normalizedKey, existing);
-  }
-
-  /**
-   * Ensure service is initialized
-   */
-  private ensureInitialized(): void {
-    if (!this.isInitialized) {
-      throw new Error('Exercise service not initialized. Call initialize() first.');
     }
   }
 
   /**
-   * Get all exercises with pagination
+   * Search exercises with multi-field filtering and relevance scoring
    */
-  getAllExercises(limit = 20, offset = 0): SearchResult {
+  searchExercises(params: SearchParams): SearchResult {
     this.ensureInitialized();
 
-    const result = paginateArray(this.exercises, offset, limit);
+    try {
+      // Validate search parameters
+      const validatedParams = SearchParamsSchema.parse(params);
 
-    return {
-      exercises: result.items,
-      total: result.total,
-      limit,
-      offset,
-      hasMore: result.hasMore
-    };
+      let results = [...this.exercises];
+
+      // Apply filters
+      if (validatedParams.equipment) {
+        results = results.filter(ex =>
+          ex.equipment.toLowerCase().includes(validatedParams.equipment!.toLowerCase())
+        );
+      }
+
+      if (validatedParams.category) {
+        results = results.filter(ex =>
+          ex.category.toLowerCase().includes(validatedParams.category!.toLowerCase())
+        );
+      }
+
+      if (validatedParams.bodyPart) {
+        results = results.filter(ex =>
+          ex.bodyPart.toLowerCase().includes(validatedParams.bodyPart!.toLowerCase())
+        );
+      }
+
+      if (validatedParams.appleCategory) {
+        results = results.filter(ex =>
+          ex.appleCategory.toLowerCase().includes(validatedParams.appleCategory!.toLowerCase())
+        );
+      }
+
+      if (validatedParams.primaryMuscles && validatedParams.primaryMuscles.length > 0) {
+        results = results.filter(ex =>
+          validatedParams.primaryMuscles!.some(muscle =>
+            ex.primaryMuscles.some(pm =>
+              pm.toLowerCase().includes(muscle.toLowerCase())
+            )
+          )
+        );
+      }
+
+      if (validatedParams.secondaryMuscles && validatedParams.secondaryMuscles.length > 0) {
+        results = results.filter(ex =>
+          validatedParams.secondaryMuscles!.some(muscle =>
+            ex.secondaryMuscles.some(sm =>
+              sm.toLowerCase().includes(muscle.toLowerCase())
+            )
+          )
+        );
+      }
+
+      // Apply text search
+      if (validatedParams.query) {
+        results = results.filter(ex =>
+          fuzzyMatch(ex.name, validatedParams.query!) ||
+          fuzzyMatch(ex.category, validatedParams.query!) ||
+          fuzzyMatch(ex.equipment, validatedParams.query!) ||
+          ex.primaryMuscles.some(m => fuzzyMatch(m, validatedParams.query!)) ||
+          ex.secondaryMuscles.some(m => fuzzyMatch(m, validatedParams.query!)) ||
+          ex.instructions.some(inst => fuzzyMatch(inst, validatedParams.query!))
+        );
+      }
+
+      // Calculate relevance scores and sort
+      const scoredResults = results.map(exercise => ({
+        exercise,
+        score: calculateRelevanceScore(exercise, validatedParams.query),
+      }));
+
+      scoredResults.sort((a, b) => b.score - a.score);
+      const sortedExercises = scoredResults.map(item => item.exercise);
+
+      // Apply pagination
+      const total = sortedExercises.length;
+      const offset = validatedParams.offset;
+      const limit = validatedParams.limit;
+      const paginatedExercises = sortedExercises.slice(offset, offset + limit);
+
+      return {
+        exercises: paginatedExercises,
+        total,
+        offset,
+        limit,
+        hasMore: offset + paginatedExercises.length < total,
+      };
+    } catch (error) {
+      logError('Error in searchExercises', error, { params });
+      throw error;
+    }
   }
 
   /**
    * Get exercise by ID
    */
-  getExerciseById(id: string): Exercise | null {
+  getExerciseById(id: string): Exercise {
     this.ensureInitialized();
-    return this.exerciseIndex.get(id) || null;
+
+    if (!isValidUUID(id)) {
+      throw new ExerciseNotFoundError(id);
+    }
+
+    const exercise = this.exercises.find(ex => ex.id === id);
+    if (!exercise) {
+      throw new ExerciseNotFoundError(id);
+    }
+
+    return exercise;
   }
 
   /**
-   * Search exercises with advanced filtering and relevance scoring
+   * Filter exercises by equipment
    */
-  searchExercises(params: SearchParams): SearchResult {
+  filterExercisesByEquipment(equipment: string, limit: number = 20, offset: number = 0): SearchResult {
     this.ensureInitialized();
 
-    let candidateIds = new Set<string>(this.exercises.map((e) => e.id));
-
-    // Apply filters to narrow down candidates
-    if (params.equipment) {
-      const equipmentIds = this.equipmentIndex.get(params.equipment.toLowerCase()) || [];
-      candidateIds = new Set(equipmentIds.filter((id) => candidateIds.has(id)));
-    }
-
-    if (params.category) {
-      const categoryIds = this.categoryIndex.get(params.category.toLowerCase()) || [];
-      candidateIds = new Set(categoryIds.filter((id) => candidateIds.has(id)));
-    }
-
-    if (params.bodyPart) {
-      const bodyPartIds = this.bodyPartIndex.get(params.bodyPart.toLowerCase()) || [];
-      candidateIds = new Set(bodyPartIds.filter((id) => candidateIds.has(id)));
-    }
-
-    if (params.appleCategory) {
-      const appleCategoryIds = this.appleCategoryIndex.get(params.appleCategory.toLowerCase()) || [];
-      candidateIds = new Set(appleCategoryIds.filter((id) => candidateIds.has(id)));
-    }
-
-    if (params.primaryMuscles && params.primaryMuscles.length > 0) {
-      const muscleIds = new Set<string>();
-      for (const muscle of params.primaryMuscles) {
-        const ids = this.primaryMuscleIndex.get(muscle.toLowerCase()) || [];
-        ids.forEach((id) => muscleIds.add(id));
-      }
-      candidateIds = new Set([...candidateIds].filter((id) => muscleIds.has(id)));
-    }
-
-    if (params.secondaryMuscles && params.secondaryMuscles.length > 0) {
-      const muscleIds = new Set<string>();
-      for (const muscle of params.secondaryMuscles) {
-        const ids = this.secondaryMuscleIndex.get(muscle.toLowerCase()) || [];
-        ids.forEach((id) => muscleIds.add(id));
-      }
-      candidateIds = new Set([...candidateIds].filter((id) => muscleIds.has(id)));
-    }
-
-    // Get candidate exercises
-    const candidates = [...candidateIds]
-      .map((id) => this.exerciseIndex.get(id))
-      .filter((exercise): exercise is Exercise => exercise !== undefined);
-
-    // Apply text search and scoring if query is provided
-    let searchResults = candidates;
-    if (params.query && params.query.trim()) {
-      const scoredResults = candidates
-        .map((exercise) => ({
-          exercise,
-          score: scoreExerciseRelevance(exercise, params.query!)
-        }))
-        .filter((result) => result.score.score > 0)
-        .sort((a, b) => b.score.score - a.score.score);
-
-      searchResults = scoredResults.map((result) => result.exercise);
-    }
-
-    // Apply pagination
-    const limit = params.limit || 20;
-    const offset = params.offset || 0;
-    const paginatedResult = paginateArray(searchResults, offset, limit);
+    const exercisesForEquipment = this.equipmentIndex.get(equipment) || [];
+    const total = exercisesForEquipment.length;
+    const paginatedExercises = exercisesForEquipment.slice(offset, offset + limit);
 
     return {
-      exercises: paginatedResult.items,
-      total: paginatedResult.total,
-      limit,
+      exercises: paginatedExercises,
+      total,
       offset,
-      hasMore: paginatedResult.hasMore
-    };
-  }
-
-  /**
-   * Filter exercises by equipment type
-   */
-  filterByEquipment(equipment: string, limit = 20, offset = 0): SearchResult {
-    this.ensureInitialized();
-
-    const exerciseIds = this.equipmentIndex.get(equipment.toLowerCase()) || [];
-    const exercises = exerciseIds
-      .map((id) => this.exerciseIndex.get(id))
-      .filter((exercise): exercise is Exercise => exercise !== undefined);
-
-    const result = paginateArray(exercises, offset, limit);
-
-    return {
-      exercises: result.items,
-      total: result.total,
       limit,
-      offset,
-      hasMore: result.hasMore
+      hasMore: offset + paginatedExercises.length < total,
     };
   }
 
   /**
    * Get exercises by category
    */
-  getByCategory(category: string, limit = 20, offset = 0): SearchResult {
+  getExercisesByCategory(category: string, limit: number = 20, offset: number = 0): SearchResult {
     this.ensureInitialized();
 
-    const exerciseIds = this.categoryIndex.get(category.toLowerCase()) || [];
-    const exercises = exerciseIds
-      .map((id) => this.exerciseIndex.get(id))
-      .filter((exercise): exercise is Exercise => exercise !== undefined);
-
-    const result = paginateArray(exercises, offset, limit);
+    const exercisesForCategory = this.categoryIndex.get(category) || [];
+    const total = exercisesForCategory.length;
+    const paginatedExercises = exercisesForCategory.slice(offset, offset + limit);
 
     return {
-      exercises: result.items,
-      total: result.total,
-      limit,
+      exercises: paginatedExercises,
+      total,
       offset,
-      hasMore: result.hasMore
+      limit,
+      hasMore: offset + paginatedExercises.length < total,
     };
   }
 
   /**
-   * Find exercise alternatives based on similar muscles and optionally equipment
+   * Find exercise alternatives
    */
-  findAlternatives(exerciseId: string, targetMuscles?: string[], equipment?: string, limit = 10): AlternativesResult {
+  findExerciseAlternatives(
+    exerciseId: string,
+    targetMuscles?: string[],
+    equipment?: string,
+    limit: number = 10
+  ): Exercise[] {
     this.ensureInitialized();
 
     const originalExercise = this.getExerciseById(exerciseId);
-    if (!originalExercise) {
-      throw new Error(`Exercise with ID ${exerciseId} not found`);
+
+    let candidates = this.exercises.filter(ex => ex.id !== exerciseId);
+
+    // Filter by target muscles (use original exercise muscles if not specified)
+    const musclesToMatch = targetMuscles && targetMuscles.length > 0
+      ? targetMuscles
+      : originalExercise.primaryMuscles;
+
+    candidates = candidates.filter(ex =>
+      musclesToMatch.some(muscle =>
+        ex.primaryMuscles.some(pm => pm.toLowerCase().includes(muscle.toLowerCase())) ||
+        ex.secondaryMuscles.some(sm => sm.toLowerCase().includes(muscle.toLowerCase()))
+      )
+    );
+
+    // Filter by equipment if specified
+    if (equipment) {
+      candidates = candidates.filter(ex =>
+        ex.equipment.toLowerCase().includes(equipment.toLowerCase())
+      );
     }
 
-    // Determine target muscles (use provided or original exercise's primary muscles)
-    const searchMuscles = targetMuscles || originalExercise.primaryMuscles;
+    // Sort by muscle group similarity
+    const scoredCandidates = candidates.map(candidate => {
+      let score = 0;
 
-    // Find exercises with similar muscles
-    const alternatives = this.exercises
-      .filter((exercise) => exercise.id !== exerciseId) // Exclude original
-      .filter((exercise) => {
-        // Must share at least one primary muscle
-        const sharesPrimary = hasCommonElements(exercise.primaryMuscles, searchMuscles);
-        // Or have search muscle as secondary while original has it as primary
-        const hasAsSecondary = hasCommonElements(exercise.secondaryMuscles, searchMuscles);
-        return sharesPrimary || hasAsSecondary;
-      })
-      .filter((exercise) => {
-        // If equipment filter is specified, must match
-        return !equipment || exercise.equipment.toLowerCase() === equipment.toLowerCase();
-      })
-      .map((exercise) => ({
-        exercise,
-        similarity: calculateExerciseSimilarity(originalExercise, exercise)
-      }))
-      .sort((a, b) => b.similarity - a.similarity)
-      .slice(0, limit)
-      .map((result) => result.exercise);
+      // Primary muscle matches
+      for (const muscle of originalExercise.primaryMuscles) {
+        if (candidate.primaryMuscles.some(pm => pm.toLowerCase() === muscle.toLowerCase())) {
+          score += 10;
+        }
+        if (candidate.secondaryMuscles.some(sm => sm.toLowerCase() === muscle.toLowerCase())) {
+          score += 5;
+        }
+      }
 
-    return {
-      original: originalExercise,
-      alternatives,
-      total: alternatives.length
-    };
+      // Secondary muscle matches
+      for (const muscle of originalExercise.secondaryMuscles) {
+        if (candidate.primaryMuscles.some(pm => pm.toLowerCase() === muscle.toLowerCase())) {
+          score += 5;
+        }
+        if (candidate.secondaryMuscles.some(sm => sm.toLowerCase() === muscle.toLowerCase())) {
+          score += 3;
+        }
+      }
+
+      // Same body part bonus
+      if (candidate.bodyPart === originalExercise.bodyPart) {
+        score += 5;
+      }
+
+      // Same category bonus
+      if (candidate.category === originalExercise.category) {
+        score += 3;
+      }
+
+      // Same equipment bonus
+      if (candidate.equipment === originalExercise.equipment) {
+        score += 2;
+      }
+
+      return { exercise: candidate, score };
+    });
+
+    scoredCandidates.sort((a, b) => b.score - a.score);
+    return scoredCandidates.slice(0, limit).map(item => item.exercise);
   }
 
   /**
    * Validate exercise IDs
    */
-  validateExerciseIds(exerciseIds: string[]): ValidationResult {
+  validateExerciseKeys(exerciseIds: string[]): ValidateExerciseKeysResult {
     this.ensureInitialized();
 
     const valid: string[] = [];
     const invalid: string[] = [];
 
     for (const id of exerciseIds) {
-      if (this.exerciseIndex.has(id)) {
+      if (!isValidUUID(id)) {
+        invalid.push(id);
+        continue;
+      }
+
+      const exists = this.exercises.some(ex => ex.id === id);
+      if (exists) {
         valid.push(id);
       } else {
         invalid.push(id);
@@ -340,79 +400,121 @@ export class ExerciseService {
   }
 
   /**
-   * Get exercise statistics and metadata
+   * Get all exercises with pagination
    */
-  getExerciseStats(): ExerciseStats {
+  getAllExercises(limit: number = 20, offset: number = 0): SearchResult {
     this.ensureInitialized();
 
-    const categories = getUniqueValues([...this.categoryIndex.keys()]);
-    const equipmentTypes = getUniqueValues([...this.equipmentIndex.keys()]);
-    const bodyParts = getUniqueValues([...this.bodyPartIndex.keys()]);
-    const primaryMuscleGroups = getUniqueValues([...this.primaryMuscleIndex.keys()]);
-    const secondaryMuscleGroups = getUniqueValues([...this.secondaryMuscleIndex.keys()]);
-    const appleCategories = getUniqueValues([...this.appleCategoryIndex.keys()]);
+    const total = this.exercises.length;
+    const paginatedExercises = this.exercises.slice(offset, offset + limit);
 
     return {
-      totalExercises: this.exercises.length,
-      categories,
-      equipmentTypes,
-      bodyParts,
-      primaryMuscleGroups,
-      secondaryMuscleGroups,
-      appleCategories
+      exercises: paginatedExercises,
+      total,
+      offset,
+      limit,
+      hasMore: offset + paginatedExercises.length < total,
     };
   }
 
   /**
-   * Get all unique categories
+   * Get unique categories
    */
   getCategories(): string[] {
     this.ensureInitialized();
-    return getUniqueValues([...this.categoryIndex.keys()]);
+    return Array.from(this.categoryIndex.keys()).sort();
   }
 
   /**
-   * Get all unique equipment types
+   * Get unique equipment types
    */
   getEquipmentTypes(): string[] {
     this.ensureInitialized();
-    return getUniqueValues([...this.equipmentIndex.keys()]);
+    return Array.from(this.equipmentIndex.keys()).sort();
   }
 
   /**
-   * Get all unique muscle groups
+   * Get unique muscle groups
    */
   getMuscleGroups(): string[] {
     this.ensureInitialized();
-    const primary = [...this.primaryMuscleIndex.keys()];
-    const secondary = [...this.secondaryMuscleIndex.keys()];
-    return getUniqueValues([...primary, ...secondary]);
+    return Array.from(this.muscleIndex.keys()).sort();
   }
 
   /**
-   * Get all unique body parts
+   * Get unique body parts
    */
   getBodyParts(): string[] {
     this.ensureInitialized();
-    return getUniqueValues([...this.bodyPartIndex.keys()]);
+    return Array.from(this.bodyPartIndex.keys()).sort();
   }
 
   /**
-   * Get all unique Apple categories
+   * Get unique Apple categories
    */
   getAppleCategories(): string[] {
     this.ensureInitialized();
-    return getUniqueValues([...this.appleCategoryIndex.keys()]);
+    return Array.from(this.appleCategoryIndex.keys()).sort();
+  }
+
+  /**
+   * Get database statistics
+   */
+  getStats(): ExerciseStats {
+    this.ensureInitialized();
+
+    return {
+      totalExercises: this.exercises.length,
+      categories: this.categoryIndex.size,
+      equipmentTypes: this.equipmentIndex.size,
+      primaryMuscles: extractUniqueValues(this.exercises, 'primaryMuscles').length,
+      secondaryMuscles: extractUniqueValues(this.exercises, 'secondaryMuscles').length,
+      bodyParts: this.bodyPartIndex.size,
+      appleCategories: this.appleCategoryIndex.size,
+    };
   }
 
   /**
    * Get service health status
    */
-  getHealthStatus(): { status: 'healthy' | 'unhealthy'; exerciseCount: number; initialized: boolean } {
-    return {
-      status: this.isInitialized && this.exercises.length > 0 ? 'healthy' : 'unhealthy',
-      exerciseCount: this.exercises.length,
-      initialized: this.isInitialized
-    };
+  getHealthStatus(): string {
+    return this.initialized ? 'healthy' : 'uninitialized';
+  }
+
+  /**
+   * Get total exercise count
+   */
+  getTotalCount(): number {
+    return this.exercises.length;
+  }
+
+  /**
+   * Get categories count
+   */
+  getCategoriesCount(): number {
+    return this.categoryIndex.size;
+  }
+
+  /**
+   * Get last updated timestamp
+   */
+  getLastUpdated(): string {
+    return this.lastUpdated;
+  }
+
+  /**
+   * Check if service is initialized
+   */
+  isInitialized(): boolean {
+    return this.initialized;
+  }
+
+  /**
+   * Ensure service is initialized before operations
+   */
+  private ensureInitialized(): void {
+    if (!this.initialized) {
+      throw new Error('ExerciseService not initialized. Call initialize() first.');
+    }
   }
 }

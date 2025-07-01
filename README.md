@@ -1,442 +1,375 @@
-# Exercise Database MCP Server
+# Exercise MCP Server
 
-A production-ready Model Context Protocol (MCP) server that provides Claude AI applications with access to a comprehensive database of 1300+ exercises through advanced search tools and resources.
+A production-ready Model Context Protocol (MCP) server providing Claude AI applications with access to a comprehensive database of 1300+ exercises. Compatible with both Claude web integrations and Claude API calls.
 
 ## Features
 
-- **1300+ Exercises**: Comprehensive database with detailed exercise information
-- **Advanced Search**: Multi-field filtering with relevance scoring and fuzzy matching
-- **Rich Metadata**: Equipment types, muscle groups, categories, and Apple HealthKit integration
-- **Fast Performance**: In-memory indexes for sub-millisecond search responses
-- **Web Server**: HTTP/HTTPS API with Streamable HTTP transport
-- **Production Ready**: TypeScript, comprehensive error handling, and graceful shutdown
+### 🏋️ Exercise Database
+- **1300+ exercises** with detailed instructions and metadata
+- **Multi-field search** with relevance scoring
+- **Equipment-based filtering** (body weight, barbell, dumbbell, etc.)
+- **Muscle group targeting** (primary and secondary muscles)
+- **Apple HealthKit integration** with category mapping
 
-## Installation
+### 🔗 MCP Integration
+- **Complete MCP implementation** with all required tools and resources
+- **SSE (Server-Sent Events) transport** for web browser compatibility
+- **OAuth-compatible authentication** for Claude web integration
+- **Real-time search and filtering** capabilities
 
+### 🚀 Production Ready
+- **Railway deployment compatible** with auto-scaling
+- **Health monitoring** with detailed status endpoints
+- **Graceful shutdown** handling
+- **Comprehensive error handling** and logging
+- **Performance optimized** with sub-100ms response times
+
+## Quick Start
+
+### Prerequisites
+- Node.js 18+
+- npm or yarn
+
+### Installation
+
+1. **Clone and install dependencies:**
 ```bash
-# Clone or extract the project
+git clone <repository-url>
 cd exercise-mcp-server
-
-# Install dependencies
 npm install
+```
 
-# Build the project
+2. **Set up environment variables:**
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+3. **Build and start:**
+```bash
 npm run build
-
-# Start the web server
 npm start
 ```
 
-The server will start on `http://127.0.0.1:3000` by default.
-
-## Development
-
+For development:
 ```bash
-# Run in development mode with hot reload
 npm run dev
-
-# Run tests
-npm test
-
-# Clean build artifacts
-npm run clean
 ```
 
-## Configuration
+### Configuration
 
-### Environment Variables
+Create a `.env` file with the following variables:
 
-- `PORT`: HTTP server port (default: 3000)
-- `NODE_ENV`: Environment (development/production)
-- `EXERCISE_DATA_PATH`: Custom path to exercises.json file
+```env
+# Server Configuration
+PORT=3000
+NODE_ENV=development
 
-### Example
+# CORS Configuration
+CORS_ORIGINS=https://claude.ai,https://*.anthropic.com,http://localhost:3000
 
-```bash
-# Start on custom port
-PORT=8080 npm start
+# Authentication
+JWT_SECRET=your-secret-key-here-change-in-production
 
-# Development with custom port
-PORT=8080 npm run dev
+# Data Configuration
+EXERCISE_DATA_PATH=./data/exercises.json
+
+# OAuth Configuration
+OAUTH_CLIENT_ID_PREFIX=exercise-mcp-client
+OAUTH_TOKEN_EXPIRY=86400
 ```
 
-## HTTP API Endpoints
+## API Endpoints
 
-### Core Endpoints
+### Health Check
+```
+GET /health
+```
+Returns server health status and statistics.
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/mcp` | Main MCP communication endpoint |
-| `GET` | `/mcp` | Server-sent events for notifications |
-| `DELETE` | `/mcp` | Session termination |
-| `GET` | `/health` | Health check and status |
-
-### MCP Session Management
-
-The server uses **Streamable HTTP** transport with session management:
-
-1. **Initialize**: Send a POST request to `/mcp` with MCP initialization
-2. **Session ID**: Server returns a session ID in the `mcp-session-id` header
-3. **Subsequent requests**: Include the session ID in all future requests
-4. **Cleanup**: Send DELETE request to terminate the session
-
-### Example Usage
-
-```bash
-# Health check
-curl http://127.0.0.1:3000/health
-
-# Initialize MCP session
-curl -X POST http://127.0.0.1:3000/mcp \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "initialize",
-    "params": {
-      "protocolVersion": "2024-11-05",
-      "capabilities": {},
-      "clientInfo": {"name": "test-client", "version": "1.0.0"}
-    }
-  }'
+### OAuth Endpoints
+```
+GET /.well-known/oauth-authorization-server  # Discovery
+POST /oauth/register                         # Client registration
+GET /oauth/authorize                         # Authorization
+POST /oauth/token                           # Token exchange
 ```
 
-## MCP Resources
+### MCP Endpoints
+```
+GET /mcp/sse                                # SSE transport for MCP
+POST /mcp/message                           # Message handler
+```
 
-The server provides the following resources accessible via the MCP protocol:
+## MCP Tools
 
-### Resources
-
-| URI | Description |
-|-----|-------------|
-| `exercise://all` | Complete list of all exercises (paginated) |
-| `exercise://categories` | All unique exercise categories |
-| `exercise://equipment-types` | All equipment types used in exercises |
-| `exercise://muscle-groups` | All muscle groups (primary and secondary) |
-| `exercise://body-parts` | All body parts targeted by exercises |
-| `exercise://apple-categories` | Apple HealthKit workout categories |
-| `exercise://stats` | Database statistics and metadata |
-
-### Tools
-
-#### 1. `search_exercises`
-Advanced exercise search with multiple filters and relevance scoring.
+### `search_exercises`
+Advanced multi-field search with relevance scoring.
 
 **Parameters:**
 - `equipment` (string, optional): Filter by equipment type
 - `category` (string, optional): Filter by exercise category
-- `primaryMuscles` (string[], optional): Filter by primary muscles
-- `secondaryMuscles` (string[], optional): Filter by secondary muscles
+- `primaryMuscles` (array, optional): Filter by primary muscles
+- `secondaryMuscles` (array, optional): Filter by secondary muscles
 - `bodyPart` (string, optional): Filter by body part
 - `appleCategory` (string, optional): Filter by Apple HealthKit category
 - `query` (string, optional): Text search across names and instructions
-- `limit` (number, optional): Max results (1-100, default: 20)
-- `offset` (number, optional): Pagination offset (default: 0)
+- `limit` (number, optional): Max results (1-100, default 20)
+- `offset` (number, optional): Pagination offset (default 0)
 
-**Example:**
-```typescript
-search_exercises({
-  equipment: "dumbbells",
-  primaryMuscles: ["chest"],
-  query: "press",
-  limit: 10
-})
-```
-
-#### 2. `get_exercise_by_id`
-Get detailed information about a specific exercise.
+### `get_exercise_by_id`
+Retrieve specific exercise by UUID.
 
 **Parameters:**
-- `id` (string, required): UUID of the exercise
+- `id` (string, required): Exercise UUID
 
-**Example:**
-```typescript
-get_exercise_by_id({
-  id: "874ce7a1-2022-449f-92c4-742c17be51bb"
-})
-```
-
-#### 3. `filter_exercises_by_equipment`
-Filter exercises by equipment type with pagination.
+### `filter_exercises_by_equipment`
+Equipment-based filtering of exercises.
 
 **Parameters:**
-- `equipment` (string, required): Equipment type to filter by
-- `limit` (number, optional): Max results (1-100, default: 20)
-- `offset` (number, optional): Pagination offset (default: 0)
+- `equipment` (string, required): Equipment type
+- `limit` (number, optional): Max results (default 20)
+- `offset` (number, optional): Pagination offset (default 0)
 
-**Example:**
-```typescript
-filter_exercises_by_equipment({
-  equipment: "body weight",
-  limit: 20
-})
-```
-
-#### 4. `get_exercises_by_category`
-Get exercises in a specific category with pagination.
+### `get_exercises_by_category`
+Category-based filtering of exercises.
 
 **Parameters:**
-- `category` (string, required): Category to filter by
-- `limit` (number, optional): Max results (1-100, default: 20)
-- `offset` (number, optional): Pagination offset (default: 0)
+- `category` (string, required): Exercise category
+- `limit` (number, optional): Max results (default 20)
+- `offset` (number, optional): Pagination offset (default 0)
 
-**Example:**
-```typescript
-get_exercises_by_category({
-  category: "abs",
-  limit: 15
-})
-```
-
-#### 5. `find_exercise_alternatives`
-Find alternative exercises targeting similar muscles.
+### `find_exercise_alternatives`
+Find similar exercises targeting same muscles.
 
 **Parameters:**
-- `exerciseId` (string, required): UUID of the reference exercise
-- `targetMuscles` (string[], optional): Specific muscles to target
-- `equipment` (string, optional): Filter alternatives by equipment
-- `limit` (number, optional): Max alternatives (1-50, default: 10)
+- `exerciseId` (string, required): Exercise ID to find alternatives for
+- `targetMuscles` (array, optional): Specific muscles to target
+- `equipment` (string, optional): Preferred equipment type
+- `limit` (number, optional): Max alternatives (default 10)
 
-**Example:**
-```typescript
-find_exercise_alternatives({
-  exerciseId: "874ce7a1-2022-449f-92c4-742c17be51bb",
-  equipment: "body weight",
-  limit: 5
-})
-```
-
-#### 6. `validate_exercise_keys`
-Validate that exercise IDs exist in the database.
+### `validate_exercise_keys`
+Validate that exercise IDs exist in database.
 
 **Parameters:**
-- `exerciseIds` (string[], required): Array of exercise UUIDs to validate
+- `exerciseIds` (array, required): Array of exercise IDs to validate
 
-**Example:**
+## MCP Resources
+
+### `exercise://all`
+Paginated list of all exercises in the database.
+
+### `exercise://categories`
+List of all unique exercise categories.
+
+### `exercise://equipment-types`
+List of all equipment types used in exercises.
+
+### `exercise://muscle-groups`
+List of all primary and secondary muscle groups.
+
+### `exercise://body-parts`
+List of all targeted body parts.
+
+### `exercise://apple-categories`
+List of all Apple HealthKit exercise categories.
+
+### `exercise://stats`
+Statistics about the exercise database.
+
+## Claude Integration
+
+### Web Integration
+
+1. **Register your MCP server** with Claude:
+   - Discovery URL: `https://your-server.com/.well-known/oauth-authorization-server`
+   - The server will handle OAuth registration automatically
+
+2. **Use in Claude conversations:**
+   ```
+   Find me 5 bodyweight exercises for abs
+   Search for dumbbell exercises targeting biceps
+   Get alternatives to exercise ID 874ce7a1-2022-449f-92c4-742c17be51bb
+   ```
+
+### API Integration
+
 ```typescript
-validate_exercise_keys({
-  exerciseIds: [
-    "874ce7a1-2022-449f-92c4-742c17be51bb",
-    "f0a9d07e-d392-49f8-af20-af48aeb1d79f"
-  ]
-})
-```
+import { MCPClient } from '@modelcontextprotocol/sdk';
 
-## Exercise Data Structure
-
-Each exercise contains the following information:
-
-```typescript
-interface Exercise {
-  id: string;              // Unique UUID
-  name: string;            // Exercise name
-  equipment: string;       // Required equipment
-  category: string;        // Exercise category
-  appleCategory: string;   // Apple HealthKit category
-  bodyPart: string;        // Primary body part
-  primaryMuscles: string[]; // Main muscles targeted
-  secondaryMuscles: string[]; // Supporting muscles
-  instructions: string[];  // Step-by-step instructions
-  images: string[];        // Image/GIF filenames
-}
-```
-
-## Search Capabilities
-
-### Text Search
-- Searches across exercise names, instructions, and muscle groups
-- Fuzzy matching handles typos and partial matches
-- Relevance scoring ranks results by match quality
-
-### Multi-field Filtering
-- Combine equipment, category, muscles, and body parts
-- Efficient index-based filtering for fast responses
-- Supports both primary and secondary muscle targeting
-
-### Pagination
-- All search results support limit/offset pagination
-- Includes `hasMore` flag for UI pagination controls
-- Efficient memory usage for large result sets
-
-## Performance
-
-- **Cold start**: ~200ms (loading and indexing 1300 exercises)
-- **Search response**: <5ms for most queries
-- **Memory usage**: ~50MB for full dataset with indexes
-- **HTTP server**: Express.js with async handlers
-- **Concurrent sessions**: Multiple MCP sessions supported
-- **Horizontal scaling**: Stateless design allows load balancing
-
-## Error Handling
-
-The server provides comprehensive error handling with standardized MCP error responses:
-
-- **Invalid Parameters**: Detailed validation errors with field-specific messages
-- **Not Found**: Clear messages when exercises or resources don't exist
-- **Internal Errors**: Graceful handling with informative error messages
-- **Service Unavailable**: Health checks and initialization status
-
-## Data Location
-
-By default, the server looks for exercise data in:
-- `./data/exercises.json`
-- `./data/availableAppleCategories.json`
-
-## Security
-
-- **CORS**: Configured for local development (`localhost`, `127.0.0.1`)
-- **Session management**: Secure session ID generation using `crypto.randomUUID()`
-- **Input validation**: All inputs validated with Zod schemas
-- **Error handling**: Comprehensive error responses without information leakage
-
-## Integration with Claude
-
-This MCP server can be used with Claude AI applications via HTTP transport. Configure Claude to connect to:
-
-```json
-{
-  "mcpServers": {
-    "exercise-server": {
-      "transport": "http",
-      "url": "http://127.0.0.1:3000/mcp",
-      "timeout": 30000
-    }
+const client = new MCPClient({
+  serverUrl: 'https://your-server.com/mcp/sse',
+  authentication: {
+    type: 'oauth2',
+    // Server handles OAuth flow automatically
   }
-}
-```
-
-Once connected, Claude can:
-
-1. **Search for exercises** based on user requirements (equipment, goals, muscles)
-2. **Get detailed exercise information** including step-by-step instructions
-3. **Validate exercise selections** for workout plans
-4. **Find alternative exercises** when equipment or preferences change
-5. **Access categorized data** for structured workout programming
-
-### Example Claude Interactions
-
-**User**: "Find me some chest exercises I can do with dumbbells"
-
-**Claude** (via MCP):
-```typescript
-search_exercises({
-  equipment: "dumbbells",
-  primaryMuscles: ["chest", "pectorals"],
-  limit: 10
-})
-```
-
-**User**: "What are the instructions for exercise ID 874ce7a1-2022-449f-92c4-742c17be51bb?"
-
-**Claude** (via MCP):
-```typescript
-get_exercise_by_id({
-  id: "874ce7a1-2022-449f-92c4-742c17be51bb"
-})
-```
-
-## HTTP Client Examples
-
-### Python
-```python
-import requests
-
-# Initialize session
-response = requests.post('http://127.0.0.1:3000/mcp', json={
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "initialize",
-    "params": {
-        "protocolVersion": "2024-11-05",
-        "capabilities": {},
-        "clientInfo": {"name": "python-client", "version": "1.0.0"}
-    }
-})
-
-session_id = response.headers.get('mcp-session-id')
-
-# Call tool
-tool_response = requests.post('http://127.0.0.1:3000/mcp',
-    headers={'mcp-session-id': session_id},
-    json={
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "tools/call",
-        "params": {
-            "name": "search_exercises",
-            "arguments": {"equipment": "dumbbells", "limit": 5}
-        }
-    }
-)
-```
-
-### JavaScript/Node.js
-```javascript
-const response = await fetch('http://127.0.0.1:3000/mcp', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    jsonrpc: '2.0',
-    id: 1,
-    method: 'initialize',
-    params: {
-      protocolVersion: '2024-11-05',
-      capabilities: {},
-      clientInfo: { name: 'js-client', version: '1.0.0' }
-    }
-  })
 });
 
-const sessionId = response.headers.get('mcp-session-id');
-// Continue with session ID for subsequent requests...
+// Search exercises
+const searchResult = await client.callTool('search_exercises', {
+  equipment: 'dumbbell',
+  primaryMuscles: ['biceps'],
+  limit: 10
+});
 ```
 
-## Architecture
+## Deployment
+
+### Railway
+
+1. **Connect your GitHub repository** to Railway
+2. **Set environment variables** in Railway dashboard
+3. **Deploy automatically** on push to main branch
+
+The server is optimized for Railway with:
+- PORT environment variable support
+- Health check endpoint
+- Graceful shutdown handling
+- Auto-scaling compatibility
+
+### Docker
+
+```dockerfile
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY . .
+RUN npm run build
+EXPOSE 3000
+CMD ["npm", "start"]
+```
+
+## Development
+
+### Scripts
+
+```bash
+npm run dev        # Development with hot reload
+npm run build      # Compile TypeScript
+npm run start      # Start production server
+npm run test       # Run tests
+npm run lint       # Lint code
+npm run clean      # Clean build artifacts
+```
+
+### Project Structure
 
 ```
 exercise-mcp-server/
 ├── src/
-│   ├── index.ts          # MCP server implementation
-│   ├── types.ts          # TypeScript interfaces & schemas
-│   ├── exerciseService.ts # Business logic & data management
-│   └── utils.ts          # Utility functions
+│   ├── index.ts              # Main server entry point
+│   ├── mcpServer.ts          # MCP protocol implementation
+│   ├── authServer.ts         # OAuth authentication
+│   ├── exerciseService.ts    # Exercise business logic
+│   ├── types.ts              # TypeScript interfaces
+│   └── utils.ts              # Helper functions
 ├── data/
-│   ├── exercises.json    # Exercise database
-│   └── availableAppleCategories.json
-├── dist/                 # Compiled output
+│   └── exercises.json        # Exercise database
+├── dist/                     # Compiled output
 ├── package.json
 ├── tsconfig.json
+├── .env.example
 └── README.md
 ```
 
-## Health Check
+### Testing
 
-The server provides health status information:
+```bash
+# Test OAuth flow
+curl -X POST http://localhost:3000/oauth/register \
+  -H "Content-Type: application/json" \
+  -d '{"client_name": "Test Client"}'
 
-```typescript
-// Server health endpoint returns:
+# Test health endpoint
+curl http://localhost:3000/health
+
+# Test MCP discovery
+curl http://localhost:3000/.well-known/oauth-authorization-server
+```
+
+## Performance
+
+- **Sub-100ms response times** for most operations
+- **Efficient indexing** for fast search and filtering
+- **Pagination support** for large result sets
+- **Memory-optimized** data structures
+- **Caching** for frequently accessed data
+
+## Security
+
+- **OAuth 2.0 compliant** authentication
+- **JWT tokens** with configurable expiration
+- **CORS protection** with whitelist origins
+- **Input validation** using Zod schemas
+- **Rate limiting** on authentication endpoints
+
+## Monitoring
+
+### Health Check Response
+```json
 {
-  server: "running",
-  exerciseService: {
-    status: "healthy",
-    exerciseCount: 1300,
-    initialized: true
+  "status": "healthy",
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "version": "1.0.0",
+  "services": {
+    "mcp": "connected",
+    "exercises": "healthy",
+    "database": {
+      "totalExercises": 1300,
+      "categoriesLoaded": 15,
+      "lastUpdated": "2024-01-01T00:00:00.000Z"
+    }
+  },
+  "endpoints": {
+    "mcp_sse": "/mcp/sse",
+    "oauth_discovery": "/.well-known/oauth-authorization-server",
+    "registration": "/oauth/register"
   }
 }
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**CORS errors with Claude web:**
+- Ensure `https://claude.ai` is in CORS_ORIGINS
+- Check OAuth discovery endpoint returns valid JSON
+
+**MCP connection fails:**
+- Verify authentication token is valid
+- Check server logs for detailed error messages
+- Ensure SSE transport is properly configured
+
+**Exercise data not loading:**
+- Verify EXERCISE_DATA_PATH points to valid JSON file
+- Check file permissions and format
+- Review startup logs for data validation errors
+
+### Debugging
+
+Enable verbose logging:
+```env
+LOG_LEVEL=debug
+NODE_ENV=development
 ```
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure TypeScript compilation passes
+3. Make your changes
+4. Add tests for new functionality
 5. Submit a pull request
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT License - see LICENSE file for details.
 
 ## Support
 
-For issues, questions, or contributions, please refer to the project repository or contact the development team.
+For issues and questions:
+- Create an issue on GitHub
+- Check the troubleshooting section
+- Review server logs for detailed error information

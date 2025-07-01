@@ -1,8 +1,48 @@
 import { z } from 'zod';
 
-/**
- * Core Exercise interface matching the JSON data structure
- */
+// Exercise data structure validation schemas
+export const ExerciseSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  equipment: z.string(),
+  category: z.string(),
+  appleCategory: z.string(),
+  bodyPart: z.string(),
+  primaryMuscles: z.array(z.string()),
+  secondaryMuscles: z.array(z.string()),
+  instructions: z.array(z.string()),
+  images: z.array(z.string()),
+});
+
+export const SearchParamsSchema = z.object({
+  equipment: z.string().optional(),
+  category: z.string().optional(),
+  primaryMuscles: z.array(z.string()).optional(),
+  secondaryMuscles: z.array(z.string()).optional(),
+  bodyPart: z.string().optional(),
+  appleCategory: z.string().optional(),
+  query: z.string().optional(),
+  limit: z.number().int().positive().max(100).default(20),
+  offset: z.number().int().min(0).default(0),
+});
+
+// OAuth schemas
+export const ClientRegistrationSchema = z.object({
+  client_name: z.string(),
+  client_uri: z.string().url().optional(),
+  scope: z.string().default('mcp:read mcp:write'),
+  redirect_uris: z.array(z.string().url()).optional(),
+});
+
+export const TokenRequestSchema = z.object({
+  grant_type: z.enum(['authorization_code', 'client_credentials']),
+  client_id: z.string(),
+  client_secret: z.string().optional(),
+  code: z.string().optional(),
+  scope: z.string().optional(),
+});
+
+// TypeScript interfaces
 export interface Exercise {
   id: string;
   name: string;
@@ -16,177 +56,158 @@ export interface Exercise {
   images: string[];
 }
 
-/**
- * Zod schema for Exercise validation
- */
-export const ExerciseSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string().min(1),
-  equipment: z.string().min(1),
-  category: z.string().min(1),
-  appleCategory: z.string().min(1),
-  bodyPart: z.string().min(1),
-  primaryMuscles: z.array(z.string()).min(1),
-  secondaryMuscles: z.array(z.string()),
-  instructions: z.array(z.string()).min(1),
-  images: z.array(z.string())
-});
-
-/**
- * Search parameters for exercise filtering
- */
 export interface SearchParams {
-  equipment?: string | undefined;
-  category?: string | undefined;
-  primaryMuscles?: string[] | undefined;
-  secondaryMuscles?: string[] | undefined;
-  bodyPart?: string | undefined;
-  appleCategory?: string | undefined;
-  query?: string | undefined; // Text search across name and instructions
-  limit?: number | undefined;
-  offset?: number | undefined;
+  equipment?: string;
+  category?: string;
+  primaryMuscles?: string[];
+  secondaryMuscles?: string[];
+  bodyPart?: string;
+  appleCategory?: string;
+  query?: string;
+  limit: number;
+  offset: number;
 }
 
-/**
- * Zod schema for search parameters validation
- */
-export const SearchParamsSchema = z.object({
-  equipment: z.string().optional(),
-  category: z.string().optional(),
-  primaryMuscles: z.array(z.string()).optional(),
-  secondaryMuscles: z.array(z.string()).optional(),
-  bodyPart: z.string().optional(),
-  appleCategory: z.string().optional(),
-  query: z.string().optional(),
-  limit: z.number().int().min(1).max(100).optional().default(20),
-  offset: z.number().int().min(0).optional().default(0)
-});
-
-/**
- * Search result with relevance scoring
- */
 export interface SearchResult {
   exercises: Exercise[];
   total: number;
-  limit: number;
   offset: number;
+  limit: number;
   hasMore: boolean;
 }
 
-/**
- * Exercise alternatives result
- */
-export interface AlternativesResult {
-  original: Exercise;
-  alternatives: Exercise[];
-  total: number;
+export interface ExerciseStats {
+  totalExercises: number;
+  categories: number;
+  equipmentTypes: number;
+  primaryMuscles: number;
+  secondaryMuscles: number;
+  bodyParts: number;
+  appleCategories: number;
 }
 
-/**
- * Validation result for exercise IDs
- */
-export interface ValidationResult {
+export interface ClientRegistration {
+  client_name: string;
+  client_uri?: string;
+  scope: string;
+  redirect_uris?: string[];
+}
+
+export interface ClientRegistrationResponse {
+  client_id: string;
+  client_secret: string;
+  registration_access_token?: string;
+  client_id_issued_at: number;
+  scope: string;
+}
+
+export interface TokenRequest {
+  grant_type: 'authorization_code' | 'client_credentials';
+  client_id: string;
+  client_secret?: string;
+  code?: string;
+  scope?: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  scope: string;
+}
+
+export interface OAuthDiscovery {
+  authorization_endpoint: string;
+  token_endpoint: string;
+  registration_endpoint: string;
+  scopes_supported: string[];
+  response_types_supported: string[];
+  grant_types_supported: string[];
+  token_endpoint_auth_methods_supported: string[];
+}
+
+export interface HealthStatus {
+  status: 'healthy' | 'unhealthy';
+  timestamp: string;
+  version: string;
+  services: {
+    mcp: string;
+    exercises: string;
+    database: {
+      totalExercises: number;
+      categoriesLoaded: number;
+      lastUpdated: string;
+    };
+  };
+  endpoints: {
+    mcp_sse: string;
+    oauth_discovery: string;
+    registration: string;
+  };
+}
+
+export interface Config {
+  port: number;
+  nodeEnv: string;
+  corsOrigins: string[];
+  jwtSecret: string;
+  exerciseDataPath: string;
+  oauthClientIdPrefix: string;
+  oauthTokenExpiry: number;
+  logLevel: string;
+}
+
+// MCP Tool parameter types
+export interface GetExerciseByIdParams {
+  id: string;
+}
+
+export interface FilterExercisesByEquipmentParams {
+  equipment: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface GetExercisesByCategoryParams {
+  category: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface FindExerciseAlternativesParams {
+  exerciseId: string;
+  targetMuscles?: string[];
+  equipment?: string;
+  limit?: number;
+}
+
+export interface ValidateExerciseKeysParams {
+  exerciseIds: string[];
+}
+
+export interface ValidateExerciseKeysResult {
   valid: string[];
   invalid: string[];
 }
 
-/**
- * Error response structure
- */
-export interface ErrorResponse {
-  error: string;
-  code: string;
-  details?: unknown;
-}
-
-/**
- * Aggregated data structures for resources
- */
-export interface ExerciseStats {
-  totalExercises: number;
-  categories: string[];
-  equipmentTypes: string[];
-  bodyParts: string[];
-  primaryMuscleGroups: string[];
-  secondaryMuscleGroups: string[];
-  appleCategories: string[];
-}
-
-/**
- * Resource content types
- */
-export interface ResourceContent {
-  exercises?: Exercise[];
-  categories?: string[];
-  equipmentTypes?: string[];
-  muscleGroups?: string[];
-  stats?: ExerciseStats;
-}
-
-/**
- * MCP Tool parameter schemas
- */
-export const GetExerciseByIdSchema = z.object({
-  id: z.string().uuid('Invalid exercise ID format')
-});
-
-export const FilterByEquipmentSchema = z.object({
-  equipment: z.string().min(1, 'Equipment type is required'),
-  limit: z.number().int().min(1).max(100).default(20),
-  offset: z.number().int().min(0).default(0)
-});
-
-export const GetByCategorySchema = z.object({
-  category: z.string().min(1, 'Category is required'),
-  limit: z.number().int().min(1).max(100).default(20),
-  offset: z.number().int().min(0).default(0)
-});
-
-export const FindAlternativesSchema = z.object({
-  exerciseId: z.string().uuid('Invalid exercise ID format'),
-  targetMuscles: z.array(z.string()).optional(),
-  equipment: z.string().optional(),
-  limit: z.number().int().min(1).max(50).default(10)
-});
-
-export const ValidateExerciseKeysSchema = z.object({
-  exerciseIds: z.array(z.string().uuid('Invalid exercise ID format')).min(1, 'At least one exercise ID is required')
-});
-
-/**
- * Type guards for runtime type checking
- */
-export function isExercise(obj: unknown): obj is Exercise {
-  try {
-    ExerciseSchema.parse(obj);
-    return true;
-  } catch {
-    return false;
+// Error types
+export class ExerciseNotFoundError extends Error {
+  constructor(id: string) {
+    super(`Exercise not found: ${id}`);
+    this.name = 'ExerciseNotFoundError';
   }
 }
 
-export function isSearchParams(obj: unknown): obj is SearchParams {
-  try {
-    SearchParamsSchema.parse(obj);
-    return true;
-  } catch {
-    return false;
+export class InvalidSearchParamsError extends Error {
+  constructor(message: string) {
+    super(`Invalid search parameters: ${message}`);
+    this.name = 'InvalidSearchParamsError';
   }
 }
 
-/**
- * Utility types for internal processing
- */
-export type ExerciseIndex = Map<string, Exercise>;
-export type CategoryIndex = Map<string, string[]>; // category -> exercise IDs
-export type EquipmentIndex = Map<string, string[]>; // equipment -> exercise IDs
-export type MuscleIndex = Map<string, string[]>; // muscle -> exercise IDs
-
-/**
- * Search scoring interface for relevance ranking
- */
-export interface SearchScore {
-  exerciseId: string;
-  score: number;
-  matchReasons: string[];
+export class DataLoadError extends Error {
+  constructor(path: string, cause?: unknown) {
+    super(`Failed to load exercise data from ${path}: ${cause}`);
+    this.name = 'DataLoadError';
+  }
 }
