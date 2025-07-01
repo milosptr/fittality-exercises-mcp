@@ -217,7 +217,24 @@ app.post('/mcp/message', authServer.authenticateToken, express.json(), async (re
 /**
  * Root endpoint with API information
  */
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
+  res.json({
+    name: 'Exercise MCP Server',
+    version: '1.0.0',
+    description: 'Production-ready MCP server providing access to 1300+ exercises',
+    endpoints: {
+      health: '/health',
+      oauth_discovery: '/.well-known/oauth-authorization-server',
+      oauth_register: '/oauth/register',
+      oauth_authorize: '/oauth/authorize',
+      oauth_token: '/oauth/token',
+      mcp_sse: '/mcp/sse',
+    },
+    stats: exerciseService.isInitialized() ? exerciseService.getStats() : null,
+  });
+});
+
+app.post('/', (_req, res) => {
   res.json({
     name: 'Exercise MCP Server',
     version: '1.0.0',
