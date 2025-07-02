@@ -30,6 +30,22 @@ export class AuthServer {
     baseUrl: string;
   };
 
+  // Pre-configured clients for stable integrations
+  private static readonly WELL_KNOWN_CLIENTS = {
+    'claude-mcp-client': {
+      client_id: 'claude-mcp-client',
+      client_secret: 'not-required-for-public-client',
+      client_id_issued_at: Math.floor(Date.now() / 1000),
+      scope: 'mcp:read mcp:write',
+    },
+    'claude-web-client': {
+      client_id: 'claude-web-client',
+      client_secret: 'not-required-for-public-client',
+      client_id_issued_at: Math.floor(Date.now() / 1000),
+      scope: 'mcp:read mcp:write',
+    }
+  };
+
   constructor(
     clientIdPrefix: string,
     jwtSecret: string,
@@ -197,23 +213,34 @@ export class AuthServer {
         return;
       }
 
-      // Validate client
-      const client = this.clients.get(client_id as string);
+            // Validate client (check both dynamic registrations and well-known clients)
+      let client = this.clients.get(client_id as string);
       if (!client) {
-        logInfo('Client not found in registry', {
+        // Check well-known clients
+        client = (AuthServer.WELL_KNOWN_CLIENTS as any)[client_id as string];
+      }
+
+      if (!client) {
+        logInfo('Client not found in any registry', {
           requestedClientId: client_id,
-          registeredClientsCount: this.clients.size,
-          registeredClientIds: Array.from(this.clients.keys()),
+          dynamicClientsCount: this.clients.size,
+          dynamicClientIds: Array.from(this.clients.keys()),
+          wellKnownClientIds: Object.keys(AuthServer.WELL_KNOWN_CLIENTS),
           userAgent: req.headers['user-agent']
         });
 
         res.status(400).json({
           error: 'invalid_client',
           error_description: 'Client not registered. Please register client first using Dynamic Client Registration at /oauth/register',
-          hint: 'Client registrations are temporary and may be lost on server restart. Re-register if needed.',
+          hint: 'Client registrations are temporary and may be lost on server restart. Re-register if needed. Well-known clients: ' + Object.keys(AuthServer.WELL_KNOWN_CLIENTS).join(', '),
         });
         return;
       }
+
+      logInfo('Client validated successfully', {
+        clientId: client_id,
+        clientType: this.clients.has(client_id as string) ? 'dynamic' : 'well-known'
+      });
 
       // For simplified implementation, auto-approve the request
       const authCode = generateToken(
@@ -270,12 +297,19 @@ export class AuthServer {
 
       const validatedData = TokenRequestSchema.parse(req.body);
 
-      // Validate client
-      const client = this.clients.get(validatedData.client_id);
+      // Validate client (check both dynamic registrations and well-known clients)
+      let client = this.clients.get(validatedData.client_id);
+      if (!client) {
+        // Check well-known clients
+        client = (AuthServer.WELL_KNOWN_CLIENTS as any)[validatedData.client_id];
+      }
+
       if (!client) {
         logError('OAuth token request failed - unknown client', null, {
           clientId: validatedData.client_id,
-          userAgent: req.headers['user-agent']
+          userAgent: req.headers['user-agent'],
+          dynamicClientsCount: this.clients.size,
+          wellKnownClientIds: Object.keys(AuthServer.WELL_KNOWN_CLIENTS)
         });
         res.status(401).json({
           error: 'invalid_client',
@@ -457,6 +491,20 @@ export class AuthServer {
    */
   getClientsCount(): number {
     return this.clients.size;
+  }
+
+  /**
+   * Get well-known clients count
+   */
+  getWellKnownClientsCount(): number {
+    return Object.keys(AuthServer.WELL_KNOWN_CLIENTS).length;
+  }
+
+  /**
+   * Get total clients count (dynamic + well-known)
+   */
+  getTotalClientsCount(): number {
+    return this.clients.size + this.getWellKnownClientsCount();
   }
 
   /**
