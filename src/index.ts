@@ -27,13 +27,17 @@ const config: Config = {
   oauthClientIdPrefix: process.env.OAUTH_CLIENT_ID_PREFIX || 'exercise-mcp-client',
   oauthTokenExpiry: parseInt(process.env.OAUTH_TOKEN_EXPIRY || '86400'),
   logLevel: process.env.LOG_LEVEL || 'info',
+  // API Configuration
+  apiSecretKey: process.env.API_SECRET_KEY || 'dev-api-key-change-in-production',
+  apiRateLimitWindow: parseInt(process.env.API_RATE_LIMIT_WINDOW || '900000'), // 15 minutes
+  apiRateLimitMax: parseInt(process.env.API_RATE_LIMIT_MAX || '1000'), // requests per window
 };
 
 /**
  * Initialize services
  */
 const exerciseService = new ExerciseService();
-const mcpServer = new ExerciseMCPServer(exerciseService);
+const mcpServer = new ExerciseMCPServer(exerciseService, config);
 
 // Use environment variable or construct base URL dynamically
 const getBaseUrl = (): string => {
@@ -64,6 +68,18 @@ const authServer = new AuthServer(
  * Express app setup
  */
 const app = express();
+
+// API CORS configuration for Claude API tool calls
+const apiCorsOptions = {
+  origin: [
+    'https://api.anthropic.com',
+    'https://*.anthropic.com',
+    'http://localhost:*'  // For development
+  ],
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
+  credentials: false  // API endpoints don't need credentials
+};
 
 // Middleware
 app.use(express.json({ limit: '10mb' }));
@@ -118,12 +134,20 @@ app.get('/health', (req, res) => {
       mcp_sse: '/mcp/sse',
       oauth_discovery: '/.well-known/oauth-authorization-server',
       registration: '/oauth/register',
+      api_schema: '/api/v1/schema',
+      api_info: '/api/v1/info',
     },
     capabilities: {
       tools: 6,
       resources: 7,
       prompts: 5,
       features: ['tools', 'resources', 'prompts', 'structured_content', 'performance_monitoring']
+    },
+    api: {
+      status: 'healthy',
+      version: 'v1',
+      endpoints_available: 8,
+      authentication: config.nodeEnv === 'production' ? 'required' : 'optional'
     },
   };
 
@@ -192,6 +216,31 @@ app.post('/oauth/token', async (req, res) => {
 app.options('/oauth/token', (req, res) => {
   res.status(200).end();
 });
+
+/**
+ * API Routes for Claude API Tool Calls
+ */
+
+// Apply API-specific middleware to /api routes
+app.use('/api', cors(apiCorsOptions));
+app.use('/api', express.json({ limit: '1mb' }));
+app.use('/api', mcpServer.apiRequestLogger);
+app.use('/api', mcpServer.apiAuthentication);
+
+// API tool endpoints
+app.post('/api/v1/tools/search_exercises', mcpServer.handleApiSearchExercises);
+app.post('/api/v1/tools/get_exercise_by_id', mcpServer.handleApiGetExerciseById);
+app.post('/api/v1/tools/filter_exercises_by_equipment', mcpServer.handleApiFilterExercisesByEquipment);
+app.post('/api/v1/tools/get_exercises_by_category', mcpServer.handleApiGetExercisesByCategory);
+app.post('/api/v1/tools/find_exercise_alternatives', mcpServer.handleApiFindExerciseAlternatives);
+app.post('/api/v1/tools/validate_exercise_keys', mcpServer.handleApiValidateExerciseKeys);
+
+// API discovery endpoints
+app.get('/api/v1/schema', mcpServer.handleApiSchema);
+app.get('/api/v1/info', mcpServer.handleApiInfo);
+
+// API error handler (must be last for /api routes)
+app.use('/api', mcpServer.apiErrorHandler);
 
 /**
  * MCP SSE endpoint

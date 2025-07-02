@@ -143,12 +143,20 @@ export interface HealthStatus {
     mcp_sse: string;
     oauth_discovery: string;
     registration: string;
+    api_schema?: string;
+    api_info?: string;
   };
   capabilities?: {
     tools: number;
     resources: number;
     prompts: number;
     features: string[];
+  };
+  api?: {
+    status: string;
+    version: string;
+    endpoints_available: number;
+    authentication: string;
   };
 }
 
@@ -161,6 +169,10 @@ export interface Config {
   oauthClientIdPrefix: string;
   oauthTokenExpiry: number;
   logLevel: string;
+  // API Configuration
+  apiSecretKey: string;
+  apiRateLimitWindow: number;
+  apiRateLimitMax: number;
 }
 
 // MCP Tool parameter types
@@ -194,6 +206,63 @@ export interface ValidateExerciseKeysParams {
 export interface ValidateExerciseKeysResult {
   valid: string[];
   invalid: string[];
+}
+
+// API Response Types for Claude API tool calls
+export interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: {
+    code: string;
+    message: string;
+    details?: any;
+  };
+  metadata: {
+    timestamp: string;
+    execution_time_ms: number;
+    total?: number;
+    limit?: number;
+    offset?: number;
+  };
+}
+
+export interface ApiToolDefinition {
+  name: string;
+  description: string;
+  input_schema: {
+    type: string;
+    properties: Record<string, any>;
+    required?: string[];
+  };
+}
+
+export interface ApiSchemaResponse {
+  tools: ApiToolDefinition[];
+  version: string;
+  server_info: {
+    name: string;
+    base_url: string;
+    description: string;
+  };
+}
+
+export interface ApiInfoResponse {
+  name: string;
+  version: string;
+  description: string;
+  endpoints: {
+    schema: string;
+    tools: string[];
+  };
+  authentication: {
+    type: string;
+    required: boolean;
+  };
+  statistics: {
+    total_exercises: number;
+    categories: number;
+    equipment_types: number;
+  };
 }
 
 // Error types

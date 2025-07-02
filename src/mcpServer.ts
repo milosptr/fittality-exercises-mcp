@@ -15,6 +15,11 @@ import {
   GetExercisesByCategoryParams,
   FindExerciseAlternativesParams,
   ValidateExerciseKeysParams,
+  ApiResponse,
+  ApiToolDefinition,
+  ApiSchemaResponse,
+  ApiInfoResponse,
+  Config,
 } from './types.js';
 import {
   parsePaginationParams,
@@ -24,7 +29,9 @@ import {
   measurePerformance,
   createErrorContext,
   createMCPLogNotification,
+  getCurrentTimestamp,
 } from './utils.js';
+import type { Request, Response, NextFunction } from 'express';
 
 /**
  * MCP Server implementation for exercise data
@@ -32,10 +39,12 @@ import {
 export class ExerciseMCPServer {
   private server: Server;
   private exerciseService: ExerciseService;
+  private config: Config;
   private isConnected = false;
 
-  constructor(exerciseService: ExerciseService) {
+  constructor(exerciseService: ExerciseService, config: Config) {
     this.exerciseService = exerciseService;
+    this.config = config;
     this.server = new Server({
       name: 'exercise-mcp-server',
       version: '1.0.0',
@@ -1138,5 +1147,642 @@ Use the exercise database to suggest specific variations and alternatives as par
    */
   getServer(): Server {
     return this.server;
+  }
+
+  // ===== NEW: API HANDLERS FOR CLAUDE API TOOL CALLS =====
+
+  /**
+   * Create API response wrapper with timing and metadata
+   */
+  private createApiResponse<T>(
+    data: T,
+    startTime: number,
+    total?: number,
+    limit?: number,
+    offset?: number
+  ): ApiResponse<T> {
+    const executionTime = performance.now() - startTime;
+
+    return {
+      success: true,
+      data,
+      metadata: {
+        timestamp: getCurrentTimestamp(),
+        execution_time_ms: Math.round(executionTime * 100) / 100,
+        ...(total !== undefined && { total }),
+        ...(limit !== undefined && { limit }),
+        ...(offset !== undefined && { offset }),
+      },
+    };
+  }
+
+  /**
+   * Create API error response
+   */
+  private createApiError(
+    code: string,
+    message: string,
+    startTime: number,
+    details?: any
+  ): ApiResponse {
+    const executionTime = performance.now() - startTime;
+
+    return {
+      success: false,
+      error: {
+        code,
+        message,
+        details,
+      },
+      metadata: {
+        timestamp: getCurrentTimestamp(),
+        execution_time_ms: Math.round(executionTime * 100) / 100,
+      },
+    };
+  }
+
+  /**
+   * API Authentication middleware
+   */
+  apiAuthentication = (req: Request, res: Response, next: NextFunction): void => {
+    const apiKey = req.headers['x-api-key'] as string ||
+                   req.headers['authorization']?.toString().replace('Bearer ', '');
+
+    // For development: accept any key or no key
+    if (this.config.nodeEnv === 'development') {
+      logInfo('API request in development mode', {
+        endpoint: req.path,
+        method: req.method,
+        hasApiKey: !!apiKey
+      });
+      return next();
+    }
+
+    // For production: require valid API key
+          if (!apiKey || apiKey !== this.config.apiSecretKey) {
+        logError('API authentication failed', new Error('Invalid or missing API key'), {
+          endpoint: req.path,
+          method: req.method,
+          providedKey: apiKey ? '***masked***' : 'none'
+        });
+
+        res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Valid API key required. Provide key via x-api-key header or Authorization: Bearer <key>',
+          },
+          metadata: {
+            timestamp: getCurrentTimestamp(),
+            execution_time_ms: 0,
+          },
+        });
+        return;
+      }
+
+    logInfo('API request authenticated', {
+      endpoint: req.path,
+      method: req.method
+    });
+    next();
+  };
+
+  /**
+   * API request logging middleware
+   */
+  apiRequestLogger = (req: Request, res: Response, next: NextFunction): void => {
+    const startTime = performance.now();
+
+    logInfo('API request started', {
+      method: req.method,
+      path: req.path,
+      userAgent: req.headers['user-agent'],
+      contentLength: req.headers['content-length'],
+    });
+
+    // Capture response on finish
+    const originalSend = res.send;
+    res.send = function(data) {
+      const duration = performance.now() - startTime;
+      logInfo('API request completed', {
+        method: req.method,
+        path: req.path,
+        statusCode: res.statusCode,
+        duration: `${duration.toFixed(2)}ms`,
+      });
+      return originalSend.call(this, data);
+    };
+
+    next();
+  };
+
+  /**
+   * API error handler middleware
+   */
+  apiErrorHandler = (err: Error, req: Request, res: Response, next: NextFunction): void => {
+    const startTime = performance.now();
+
+    logError('API request error', err, {
+      method: req.method,
+      path: req.path,
+      body: req.body,
+    });
+
+    const errorResponse = this.createApiError(
+      'INTERNAL_ERROR',
+      'An internal server error occurred',
+      startTime,
+      this.config.nodeEnv === 'development' ? {
+        error: err.message,
+        stack: err.stack
+      } : undefined
+    );
+
+    res.status(500).json(errorResponse);
+  };
+
+  // ===== API ENDPOINT HANDLERS =====
+
+  /**
+   * POST /api/v1/tools/search_exercises
+   */
+  handleApiSearchExercises = async (req: Request, res: Response): Promise<void> => {
+    const startTime = performance.now();
+
+    try {
+      const validatedParams = SearchParamsSchema.parse(req.body);
+      const result = this.exerciseService.searchExercises(validatedParams);
+
+      const response = this.createApiResponse(
+        result,
+        startTime,
+        result.total,
+        result.limit,
+        result.offset
+      );
+
+      res.json(response);
+    } catch (error) {
+      const errorResponse = this.createApiError(
+        'INVALID_INPUT',
+        error instanceof Error ? error.message : 'Invalid search parameters',
+        startTime,
+        error
+      );
+      res.status(400).json(errorResponse);
+    }
+  };
+
+  /**
+   * POST /api/v1/tools/get_exercise_by_id
+   */
+  handleApiGetExerciseById = async (req: Request, res: Response): Promise<void> => {
+    const startTime = performance.now();
+
+    try {
+      const { id } = req.body;
+
+              if (!id || typeof id !== 'string') {
+          const errorResponse = this.createApiError(
+            'INVALID_INPUT',
+            'Exercise ID is required and must be a string',
+            startTime
+          );
+          res.status(400).json(errorResponse);
+          return;
+        }
+
+      const exercise = this.exerciseService.getExerciseById(sanitizeString(id));
+      const response = this.createApiResponse(exercise, startTime);
+
+      res.json(response);
+    } catch (error) {
+      const errorResponse = this.createApiError(
+        'EXERCISE_NOT_FOUND',
+        error instanceof Error ? error.message : 'Exercise not found',
+        startTime
+      );
+      res.status(404).json(errorResponse);
+    }
+  };
+
+  /**
+   * POST /api/v1/tools/filter_exercises_by_equipment
+   */
+  handleApiFilterExercisesByEquipment = async (req: Request, res: Response): Promise<void> => {
+    const startTime = performance.now();
+
+    try {
+      const { equipment, limit = 20, offset = 0 } = req.body;
+
+              if (!equipment || typeof equipment !== 'string') {
+          const errorResponse = this.createApiError(
+            'INVALID_INPUT',
+            'Equipment parameter is required and must be a string',
+            startTime
+          );
+          res.status(400).json(errorResponse);
+          return;
+        }
+
+      const result = this.exerciseService.filterExercisesByEquipment(
+        sanitizeString(equipment),
+        limit,
+        offset
+      );
+
+      const response = this.createApiResponse(
+        result,
+        startTime,
+        result.total,
+        result.limit,
+        result.offset
+      );
+
+      res.json(response);
+    } catch (error) {
+      const errorResponse = this.createApiError(
+        'INVALID_INPUT',
+        error instanceof Error ? error.message : 'Invalid equipment filter parameters',
+        startTime
+      );
+      res.status(400).json(errorResponse);
+    }
+  };
+
+  /**
+   * POST /api/v1/tools/get_exercises_by_category
+   */
+  handleApiGetExercisesByCategory = async (req: Request, res: Response): Promise<void> => {
+    const startTime = performance.now();
+
+    try {
+      const { category, limit = 20, offset = 0 } = req.body;
+
+              if (!category || typeof category !== 'string') {
+          const errorResponse = this.createApiError(
+            'INVALID_INPUT',
+            'Category parameter is required and must be a string',
+            startTime
+          );
+          res.status(400).json(errorResponse);
+          return;
+        }
+
+      const result = this.exerciseService.getExercisesByCategory(
+        sanitizeString(category),
+        limit,
+        offset
+      );
+
+      const response = this.createApiResponse(
+        result,
+        startTime,
+        result.total,
+        result.limit,
+        result.offset
+      );
+
+      res.json(response);
+    } catch (error) {
+      const errorResponse = this.createApiError(
+        'INVALID_INPUT',
+        error instanceof Error ? error.message : 'Invalid category filter parameters',
+        startTime
+      );
+      res.status(400).json(errorResponse);
+    }
+  };
+
+  /**
+   * POST /api/v1/tools/find_exercise_alternatives
+   */
+  handleApiFindExerciseAlternatives = async (req: Request, res: Response): Promise<void> => {
+    const startTime = performance.now();
+
+    try {
+      const { exerciseId, targetMuscles, equipment, limit = 10 } = req.body;
+
+              if (!exerciseId || typeof exerciseId !== 'string') {
+          const errorResponse = this.createApiError(
+            'INVALID_INPUT',
+            'Exercise ID is required and must be a string',
+            startTime
+          );
+          res.status(400).json(errorResponse);
+          return;
+        }
+
+      const alternatives = this.exerciseService.findExerciseAlternatives(
+        sanitizeString(exerciseId),
+        targetMuscles?.map((m: string) => sanitizeString(m)),
+        equipment ? sanitizeString(equipment) : undefined,
+        limit
+      );
+
+      const response = this.createApiResponse(alternatives, startTime);
+
+      res.json(response);
+    } catch (error) {
+      const errorResponse = this.createApiError(
+        'EXERCISE_NOT_FOUND',
+        error instanceof Error ? error.message : 'Could not find exercise alternatives',
+        startTime
+      );
+      res.status(404).json(errorResponse);
+    }
+  };
+
+  /**
+   * POST /api/v1/tools/validate_exercise_keys
+   */
+  handleApiValidateExerciseKeys = async (req: Request, res: Response): Promise<void> => {
+    const startTime = performance.now();
+
+    try {
+      const { exerciseIds } = req.body;
+
+              if (!exerciseIds || !Array.isArray(exerciseIds)) {
+          const errorResponse = this.createApiError(
+            'INVALID_INPUT',
+            'Exercise IDs parameter is required and must be an array',
+            startTime
+          );
+          res.status(400).json(errorResponse);
+          return;
+        }
+
+      const result = this.exerciseService.validateExerciseKeys(
+        exerciseIds.map((id: string) => sanitizeString(id))
+      );
+
+      // Add count metadata for convenience
+      const enhancedResult = {
+        ...result,
+        totalChecked: exerciseIds.length,
+        validCount: result.valid.length,
+        invalidCount: result.invalid.length,
+      };
+
+      const response = this.createApiResponse(enhancedResult, startTime);
+
+      res.json(response);
+    } catch (error) {
+      const errorResponse = this.createApiError(
+        'INVALID_INPUT',
+        error instanceof Error ? error.message : 'Invalid validation parameters',
+        startTime
+      );
+      res.status(400).json(errorResponse);
+    }
+  };
+
+  /**
+   * GET /api/v1/schema - Tool schema discovery for Claude API
+   */
+  handleApiSchema = async (req: Request, res: Response): Promise<void> => {
+    const startTime = performance.now();
+
+    try {
+      const baseUrl = this.getApiBaseUrl(req);
+
+      const tools: ApiToolDefinition[] = [
+        {
+          name: 'search_exercises',
+          description: 'Search for exercises with advanced filtering and relevance scoring',
+          input_schema: {
+            type: 'object',
+            properties: {
+              equipment: {
+                type: 'string',
+                description: "Filter by equipment type (e.g., 'dumbbells', 'barbell', 'body weight')"
+              },
+              category: {
+                type: 'string',
+                description: "Filter by exercise category (e.g., 'abs', 'chest', 'legs')"
+              },
+              primaryMuscles: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Filter by primary muscles targeted'
+              },
+              secondaryMuscles: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Filter by secondary muscles targeted'
+              },
+              bodyPart: {
+                type: 'string',
+                description: 'Filter by body part targeted'
+              },
+              appleCategory: {
+                type: 'string',
+                description: 'Filter by Apple HealthKit category'
+              },
+              query: {
+                type: 'string',
+                description: 'Text search across exercise names and instructions'
+              },
+              limit: {
+                type: 'number',
+                description: 'Maximum number of results (1-100, default: 20)',
+                minimum: 1,
+                maximum: 100
+              },
+              offset: {
+                type: 'number',
+                description: 'Number of results to skip for pagination (default: 0)',
+                minimum: 0
+              }
+            }
+          }
+        },
+        {
+          name: 'get_exercise_by_id',
+          description: 'Retrieve specific exercise details by UUID',
+          input_schema: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                description: 'Exercise UUID identifier'
+              }
+            },
+            required: ['id']
+          }
+        },
+        {
+          name: 'filter_exercises_by_equipment',
+          description: 'Filter exercises by equipment type with pagination',
+          input_schema: {
+            type: 'object',
+            properties: {
+              equipment: {
+                type: 'string',
+                description: 'Equipment type to filter by'
+              },
+              limit: {
+                type: 'number',
+                description: 'Maximum number of results (default: 20)',
+                minimum: 1,
+                maximum: 100
+              },
+              offset: {
+                type: 'number',
+                description: 'Number of results to skip (default: 0)',
+                minimum: 0
+              }
+            },
+            required: ['equipment']
+          }
+        },
+        {
+          name: 'get_exercises_by_category',
+          description: 'Get exercises by category with pagination',
+          input_schema: {
+            type: 'object',
+            properties: {
+              category: {
+                type: 'string',
+                description: 'Exercise category to filter by'
+              },
+              limit: {
+                type: 'number',
+                description: 'Maximum number of results (default: 20)',
+                minimum: 1,
+                maximum: 100
+              },
+              offset: {
+                type: 'number',
+                description: 'Number of results to skip (default: 0)',
+                minimum: 0
+              }
+            },
+            required: ['category']
+          }
+        },
+        {
+          name: 'find_exercise_alternatives',
+          description: 'Find alternative exercises targeting the same muscle groups',
+          input_schema: {
+            type: 'object',
+            properties: {
+              exerciseId: {
+                type: 'string',
+                description: 'ID of the exercise to find alternatives for'
+              },
+              targetMuscles: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Specific muscles to target (optional)'
+              },
+              equipment: {
+                type: 'string',
+                description: 'Preferred equipment type (optional)'
+              },
+              limit: {
+                type: 'number',
+                description: 'Maximum number of alternatives (1-50, default: 10)',
+                minimum: 1,
+                maximum: 50
+              }
+            },
+            required: ['exerciseId']
+          }
+        },
+        {
+          name: 'validate_exercise_keys',
+          description: 'Validate that exercise IDs exist in the database',
+          input_schema: {
+            type: 'object',
+            properties: {
+              exerciseIds: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Array of exercise IDs to validate'
+              }
+            },
+            required: ['exerciseIds']
+          }
+        }
+      ];
+
+      const schemaResponse: ApiSchemaResponse = {
+        tools,
+        version: '1.0.0',
+        server_info: {
+          name: 'Exercise Database API',
+          base_url: `${baseUrl}/api/v1/tools`,
+          description: 'REST API providing access to 1300+ exercises with advanced search and filtering capabilities'
+        }
+      };
+
+      const response = this.createApiResponse(schemaResponse, startTime);
+      res.json(response);
+    } catch (error) {
+      const errorResponse = this.createApiError(
+        'SCHEMA_ERROR',
+        error instanceof Error ? error.message : 'Could not generate schema',
+        startTime
+      );
+      res.status(500).json(errorResponse);
+    }
+  };
+
+  /**
+   * GET /api/v1/info - API information endpoint
+   */
+  handleApiInfo = async (req: Request, res: Response): Promise<void> => {
+    const startTime = performance.now();
+
+    try {
+      const baseUrl = this.getApiBaseUrl(req);
+      const stats = this.exerciseService.getStats();
+
+      const infoResponse: ApiInfoResponse = {
+        name: 'Exercise Database API',
+        version: '1.0.0',
+        description: 'REST API providing access to comprehensive exercise database with 1300+ exercises',
+        endpoints: {
+          schema: `${baseUrl}/api/v1/schema`,
+          tools: [
+            `${baseUrl}/api/v1/tools/search_exercises`,
+            `${baseUrl}/api/v1/tools/get_exercise_by_id`,
+            `${baseUrl}/api/v1/tools/filter_exercises_by_equipment`,
+            `${baseUrl}/api/v1/tools/get_exercises_by_category`,
+            `${baseUrl}/api/v1/tools/find_exercise_alternatives`,
+            `${baseUrl}/api/v1/tools/validate_exercise_keys`
+          ]
+        },
+        authentication: {
+          type: 'api_key',
+          required: this.config.nodeEnv === 'production'
+        },
+        statistics: {
+          total_exercises: stats.totalExercises,
+          categories: stats.categories,
+          equipment_types: stats.equipmentTypes
+        }
+      };
+
+      const response = this.createApiResponse(infoResponse, startTime);
+      res.json(response);
+    } catch (error) {
+      const errorResponse = this.createApiError(
+        'INFO_ERROR',
+        error instanceof Error ? error.message : 'Could not generate API info',
+        startTime
+      );
+      res.status(500).json(errorResponse);
+    }
+  };
+
+  /**
+   * Helper to get API base URL from request
+   */
+  private getApiBaseUrl(req: Request): string {
+    const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    return `${protocol}://${host}`;
   }
 }
