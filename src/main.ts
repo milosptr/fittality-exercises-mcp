@@ -1,0 +1,173 @@
+import {
+  McpServer,
+  ResourceTemplate,
+} from "@modelcontextprotocol/sdk/server/mcp.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import express from "express";
+import { loadExercises, getExerciseById } from "./exercise-functions/loader.js";
+import { getDatabaseStats, getDatabaseHealth } from "./exercise-functions/health.js";
+import { getPerformanceMetrics } from "./exercise-functions/performance.js";
+import { registerSearchTools } from "./tools/search-tools.js";
+import { registerLookupTools } from "./tools/lookup-tools.js";
+import { registerFilterTools } from "./tools/filter-tools.js";
+import { registerMetadataTools } from "./tools/metadata-tools.js";
+import { registerHealthTools } from "./tools/health-tools.js";
+
+// Load exercise data on startup
+await loadExercises();
+
+// Create an MCP server
+const server = new McpServer({
+  name: "Exercise Database",
+  version: "1.0.0",
+});
+
+// Register all tool categories
+registerSearchTools(server);
+registerLookupTools(server);
+registerFilterTools(server);
+registerMetadataTools(server);
+registerHealthTools(server);
+
+// Add dynamic exercise resources
+server.resource(
+  "exercise",
+  new ResourceTemplate("exercise://{id}", { list: undefined }),
+  async (uri, { id }) => {
+    // Ensure id is a string
+    const exerciseId = Array.isArray(id) ? id[0] : id;
+    if (!exerciseId || typeof exerciseId !== 'string') {
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            text: `Invalid exercise ID provided.`,
+          },
+        ],
+      };
+    }
+
+    const exercise = getExerciseById(exerciseId);
+    if (!exercise) {
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            text: `Exercise with ID "${exerciseId}" not found.`,
+          },
+        ],
+      };
+    }
+    return {
+      contents: [
+        {
+          uri: uri.href,
+          text: JSON.stringify(exercise, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Add database statistics resource
+server.resource(
+  "exercise-stats",
+  new ResourceTemplate("exercise://stats", { list: undefined }),
+  async (uri) => {
+    const stats = getDatabaseStats();
+    return {
+      contents: [
+        {
+          uri: uri.href,
+          text: JSON.stringify(stats, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Add database health resource
+server.resource(
+  "exercise-health",
+  new ResourceTemplate("exercise://health", { list: undefined }),
+  async (uri) => {
+    const health = getDatabaseHealth();
+    return {
+      contents: [
+        {
+          uri: uri.href,
+          text: JSON.stringify(health, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Add performance metrics resource
+server.resource(
+  "exercise-performance",
+  new ResourceTemplate("exercise://performance", { list: undefined }),
+  async (uri) => {
+    const performance = getPerformanceMetrics();
+    return {
+      contents: [
+        {
+          uri: uri.href,
+          text: JSON.stringify(performance, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Create Express app for SSE transport
+const app = express();
+app.use(express.json());
+
+let transport: SSEServerTransport | undefined = undefined;
+
+// Health check endpoint
+app.get("/health", async (req, res) => {
+  try {
+    // Basic health check - ensure exercises are loaded
+    const exerciseCount = (await import("./exercise-functions/loader.js")).getExerciseData().length;
+    res.json({
+      status: "healthy",
+      service: "Exercise Database MCP Server",
+      version: "1.0.0",
+      exerciseCount,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "unhealthy",
+      service: "Exercise Database MCP Server",
+      error: error instanceof Error ? error.message : "Unknown error",
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// SSE endpoint for MCP communication
+app.get("/sse", async (req, res) => {
+  console.log("New SSE connection established");
+  transport = new SSEServerTransport("/messages", res);
+  await server.connect(transport);
+});
+
+// POST endpoint for handling MCP messages
+app.post("/messages", async (req, res) => {
+  if (!transport) {
+    res.status(400).json({ error: "No SSE transport connection established" });
+    return;
+  }
+  await transport.handlePostMessage(req, res);
+});
+
+// Start the server
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => {
+  console.log(`Exercise Database MCP Server is running on port ${PORT}`);
+  console.log(`Health check available at: http://localhost:${PORT}/health`);
+  console.log(`SSE endpoint available at: http://localhost:${PORT}/sse`);
+});

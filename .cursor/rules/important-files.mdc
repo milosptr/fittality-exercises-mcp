@@ -1,0 +1,47 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Important Files for MCP Exercise Database Server
+
+This project is an MCP (Model Context Protocol) server for an exercise database written in TypeScript.
+
+## Core Files
+
+- `README.md` - Comprehensive project documentation (744 lines)
+- `package.json` - Project configuration and dependencies
+- `tsconfig.json` - TypeScript configuration
+- `src/main.ts` - Main entry point for the MCP server (Express + SSE transport)
+- `src/types.ts` - Shared TypeScript interfaces and types
+- `data/exercises.json` - Exercise database (1300+ exercises)
+- `.env` - Environment variables (not tracked in git)
+- `.env.example` - Example environment configuration
+- `.gitignore` - Git ignore patterns
+
+## Exercise Functions
+
+- `src/exercise-functions/loader.ts` - Data loading and exercise retrieval
+- `src/exercise-functions/search.ts` - Search and filtering functions
+- `src/exercise-functions/validation.ts` - Exercise ID validation
+- `src/exercise-functions/alternatives.ts` - Finding alternative exercises
+- `src/exercise-functions/metadata.ts` - Categories, equipment, muscle groups
+- `src/exercise-functions/health.ts` - Database health monitoring and statistics
+- `src/exercise-functions/performance.ts` - Performance metrics and integrity validation
+
+## MCP Tools
+
+- `src/tools/search-tools.ts` - Search-related MCP tools
+- `src/tools/lookup-tools.ts` - Get by ID and validation tools
+- `src/tools/filter-tools.ts` - Category and equipment filtering tools
+- `src/tools/metadata-tools.ts` - Resource listing tools
+- `src/tools/health-tools.ts` - Health monitoring and system information tools
+
+## Development Files
+
+- `dist/` - Compiled TypeScript output (ignored by git)
+- `node_modules/` - Package dependencies (ignored by git)
+
+---
+
+**Note**: When new important files are added to this project, they should be added to this `important-files.mdc` file to ensure they are included in future chats.
