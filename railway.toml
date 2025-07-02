@@ -1,0 +1,55 @@
+# Railway Configuration for Exercise Database MCP Server
+# This file configures the build and deployment settings for Railway
+
+[build]
+# Use Nixpacks builder for Node.js projects
+builder = "nixpacks"
+
+# Build command to compile TypeScript and prepare for production
+buildCommand = "pnpm build"
+
+# Watch patterns to trigger rebuilds only when relevant files change
+watchPatterns = [
+  "src/**",
+  "data/**",
+  "package.json",
+  "pnpm-lock.yaml",
+  "tsconfig.json"
+]
+
+[deploy]
+# Start command to run the compiled MCP server
+startCommand = "node dist/main.js"
+
+# Health check configuration
+healthcheckPath = "/health"
+healthcheckTimeout = 60
+
+# Restart policy for production reliability
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+# Deployment teardown settings for zero-downtime deployments
+overlapSeconds = 30
+drainingSeconds = 10
+
+# Environment-specific configurations
+[environments.production]
+[environments.production.deploy]
+# Production-specific start command with optimizations
+startCommand = "NODE_ENV=production node dist/main.js"
+
+# Longer health check timeout for production
+healthcheckTimeout = 120
+
+# More conservative restart policy for production
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+
+[environments.staging]
+[environments.staging.deploy]
+# Staging environment with debug logging
+startCommand = "NODE_ENV=staging DEBUG=* node dist/main.js"
+
+# Shorter timeout for faster iteration in staging
+healthcheckTimeout = 30

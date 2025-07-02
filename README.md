@@ -546,24 +546,25 @@ ls -la dist/
 
 ### Railway Deployment
 
-1. **Create `railway.toml`:**
-   ```toml
-   [build]
-   builder = "nixpacks"
+The project includes a pre-configured `railway.toml` file for easy deployment:
 
-   [deploy]
-   startCommand = "node dist/main.js"
-
-   [env]
-   NODE_ENV = "production"
-   ```
-
-2. **Deploy:**
+1. **Deploy directly:**
    ```bash
    railway login
    railway link
    railway deploy
    ```
+
+The `railway.toml` configuration includes:
+- **Nixpacks builder** for Node.js projects
+- **Automatic TypeScript compilation** with `pnpm build`
+- **Health checks** on `/health` endpoint
+- **Zero-downtime deployments** with overlap and draining settings
+- **Environment-specific configurations** for production and staging
+- **Smart watch patterns** to trigger rebuilds only when needed
+
+2. **Alternative JSON configuration:**
+   A `railway.json` file is also provided for teams preferring JSON format.
 
 ### Heroku Deployment
 

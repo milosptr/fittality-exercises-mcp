@@ -12,6 +12,8 @@ This project is an MCP (Model Context Protocol) server for an exercise database 
 - `README.md` - Comprehensive project documentation (744 lines)
 - `package.json` - Project configuration and dependencies
 - `tsconfig.json` - TypeScript configuration
+- `railway.toml` - Railway deployment configuration (TOML format)
+- `railway.json` - Railway deployment configuration (JSON format)
 - `src/main.ts` - Main entry point for the MCP server (Express + SSE transport)
 - `src/types.ts` - Shared TypeScript interfaces and types
 - `data/exercises.json` - Exercise database (1300+ exercises)
