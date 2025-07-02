@@ -229,3 +229,63 @@ export function debounce<T extends (...args: any[]) => any>(
     timeout = setTimeout(() => func(...args), wait);
   };
 }
+
+/**
+ * Performance measurement utility
+ */
+export async function measurePerformance<T>(
+  operation: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  const start = performance.now();
+  try {
+    const result = await fn();
+    const duration = performance.now() - start;
+    logInfo(`Performance: ${operation} completed`, {
+      operation,
+      duration: `${duration.toFixed(2)}ms`,
+      success: true
+    });
+    return result;
+  } catch (error) {
+    const duration = performance.now() - start;
+    logError(`Performance: ${operation} failed`, error, {
+      operation,
+      duration: `${duration.toFixed(2)}ms`,
+      success: false
+    });
+    throw error;
+  }
+}
+
+/**
+ * Enhanced error context for debugging
+ */
+export function createErrorContext(
+  operation: string,
+  additionalContext: Record<string, any> = {}
+): Record<string, any> {
+  return {
+    operation,
+    timestamp: getCurrentTimestamp(),
+    requestId: additionalContext.requestId || 'unknown',
+    ...additionalContext
+  };
+}
+
+/**
+ * MCP notification helper for logging
+ */
+export function createMCPLogNotification(
+  level: 'info' | 'warn' | 'error' | 'debug',
+  message: string,
+  data?: any
+) {
+  return {
+    method: 'notifications/message',
+    params: {
+      level,
+      data: data ? `${message}: ${JSON.stringify(data)}` : message
+    }
+  };
+}

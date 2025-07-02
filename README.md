@@ -1,195 +1,380 @@
 # Exercise MCP Server
 
-A production-ready Model Context Protocol (MCP) server providing Claude AI applications with access to a comprehensive database of 1300+ exercises. Compatible with both Claude web integrations and Claude API calls.
+A production-ready **Model Context Protocol (MCP)** server providing Claude AI applications with access to a comprehensive database of 1300+ exercises. Built with TypeScript, Express.js, and the official MCP SDK.
 
-## Features
+## 🎯 Overview
 
-### 🏋️ Exercise Database
-- **1300+ exercises** with detailed instructions and metadata
-- **Multi-field search** with relevance scoring
-- **Equipment-based filtering** (body weight, barbell, dumbbell, etc.)
-- **Muscle group targeting** (primary and secondary muscles)
-- **Apple HealthKit integration** with category mapping
+This MCP server enables AI applications (like Claude) to access and utilize a rich exercise database through standardized MCP protocols. It implements all three core MCP primitives - **Tools**, **Resources**, and **Prompts** - making it a complete fitness-focused AI integration.
 
-### 🔗 MCP Integration
-- **Complete MCP implementation** with all required tools and resources
-- **SSE (Server-Sent Events) transport** for web browser compatibility
-- **OAuth-compatible authentication** for Claude web integration
-- **Real-time search and filtering** capabilities
+### Key Features
 
-### 🚀 Production Ready
-- **Railway deployment compatible** with auto-scaling
-- **Health monitoring** with detailed status endpoints
-- **Graceful shutdown** handling
-- **Comprehensive error handling** and logging
-- **Performance optimized** with sub-100ms response times
+- 🏋️ **1300+ Exercise Database** - Comprehensive exercise data with instructions, muscle groups, and equipment
+- 🔧 **6 Powerful Tools** - Search, filter, and find exercise alternatives
+- 📚 **7 Resource Endpoints** - Access categorized exercise data
+- 📝 **5 Fitness Prompts** - Guided workout planning and form guidance
+- 🔐 **OAuth Authentication** - Secure client registration and token management
+- 🚀 **Production Ready** - Railway deployment, health monitoring, and performance tracking
+- 🌐 **Web Compatible** - SSE transport for browser-based Claude integrations
 
-## Quick Start
+## 📦 Installation
 
 ### Prerequisites
 - Node.js 18+
 - npm or yarn
+- TypeScript
 
-### Installation
+### Local Development
 
-1. **Clone and install dependencies:**
 ```bash
-git clone <repository-url>
-cd exercise-mcp-server
+# Clone the repository
+git clone https://github.com/your-username/fittality-exercises-mcp.git
+cd fittality-exercises-mcp
+
+# Install dependencies
 npm install
-```
 
-2. **Set up environment variables:**
-```bash
+# Set up environment variables
 cp .env.example .env
 # Edit .env with your configuration
-```
 
-3. **Build and start:**
-```bash
+# Build the project
 npm run build
-npm start
-```
 
-For development:
-```bash
+# Start the server
+npm start
+
+# Or run in development mode
 npm run dev
 ```
 
-### Configuration
+### Environment Variables
 
-Create a `.env` file with the following variables:
-
-```env
+```bash
 # Server Configuration
 PORT=3000
 NODE_ENV=development
 
-# CORS Configuration
-CORS_ORIGINS=https://claude.ai,https://*.anthropic.com,http://localhost:3000
+# Security
+JWT_SECRET=your-secure-jwt-secret
+CORS_ORIGINS=https://claude.ai,https://*.anthropic.com
 
-# Authentication
-JWT_SECRET=your-secret-key-here-change-in-production
-
-# Data Configuration
+# Database
 EXERCISE_DATA_PATH=./data/exercises.json
 
-# OAuth Configuration
+# OAuth
 OAUTH_CLIENT_ID_PREFIX=exercise-mcp-client
 OAUTH_TOKEN_EXPIRY=86400
+
+# Logging
+LOG_LEVEL=info
 ```
 
-## API Endpoints
+## 🔗 API Endpoints
 
-### Health Check
-```
-GET /health
-```
-Returns server health status and statistics.
+### Health & Info
 
-### OAuth Endpoints
-```
-GET /.well-known/oauth-authorization-server  # Discovery
-POST /oauth/register                         # Client registration
-GET /oauth/authorize                         # Authorization
-POST /oauth/token                           # Token exchange
+#### `GET /health`
+Returns server health status and capabilities.
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-07-02T02:40:54.198Z",
+  "version": "1.0.0",
+  "services": {
+    "mcp": "disconnected",
+    "exercises": "healthy",
+    "database": {
+      "totalExercises": 1324,
+      "categoriesLoaded": 19,
+      "lastUpdated": "2025-07-02T02:40:48.868Z"
+    }
+  },
+  "endpoints": {
+    "mcp_sse": "/mcp/sse",
+    "oauth_discovery": "/.well-known/oauth-authorization-server",
+    "registration": "/oauth/register"
+  },
+  "capabilities": {
+    "tools": 6,
+    "resources": 7,
+    "prompts": 5,
+    "features": [
+      "tools",
+      "resources",
+      "prompts",
+      "structured_content",
+      "performance_monitoring"
+    ]
+  }
+}
 ```
 
-### MCP Endpoints
-```
-GET /mcp/sse                                # SSE transport for MCP
-POST /mcp/message                           # Message handler
+#### `GET /` or `POST /`
+Returns API information and statistics.
+
+### OAuth Authentication
+
+#### `GET /.well-known/oauth-authorization-server`
+OAuth 2.0 discovery endpoint for client auto-configuration.
+
+**Response:**
+```json
+{
+  "authorization_endpoint": "https://your-server.com/oauth/authorize",
+  "token_endpoint": "https://your-server.com/oauth/token",
+  "registration_endpoint": "https://your-server.com/oauth/register",
+  "scopes_supported": ["mcp:read", "mcp:write"],
+  "response_types_supported": ["code"],
+  "grant_types_supported": ["authorization_code", "client_credentials"],
+  "token_endpoint_auth_methods_supported": ["client_secret_basic", "none"]
+}
 ```
 
-## MCP Tools
+#### `POST /oauth/register`
+Register a new OAuth client.
 
-### `search_exercises`
+**Request:**
+```json
+{
+  "client_name": "Claude MCP Client",
+  "client_uri": "https://claude.ai",
+  "scope": "mcp:read mcp:write"
+}
+```
+
+**Response:**
+```json
+{
+  "client_id": "exercise-mcp-client-12345",
+  "client_secret": "not-required-for-public-client",
+  "client_id_issued_at": 1640995200,
+  "scope": "mcp:read mcp:write"
+}
+```
+
+#### `GET /oauth/authorize`
+OAuth authorization endpoint (auto-approves for simplicity).
+
+#### `POST /oauth/token`
+Exchange credentials for access tokens.
+
+**Request:**
+```json
+{
+  "grant_type": "client_credentials",
+  "client_id": "exercise-mcp-client-12345",
+  "scope": "mcp:read mcp:write"
+}
+```
+
+### MCP Transport
+
+#### `GET /mcp/sse` 🔒
+**Authentication Required**
+
+Server-Sent Events endpoint for MCP communication. Requires valid OAuth token.
+
+#### `POST /mcp/message` 🔒
+**Authentication Required**
+
+Handles bidirectional MCP message communication.
+
+## 🛠️ MCP Tools
+
+The server provides 6 powerful tools for exercise data interaction:
+
+### 1. `search_exercises`
 Advanced multi-field search with relevance scoring.
 
 **Parameters:**
-- `equipment` (string, optional): Filter by equipment type
-- `category` (string, optional): Filter by exercise category
-- `primaryMuscles` (array, optional): Filter by primary muscles
-- `secondaryMuscles` (array, optional): Filter by secondary muscles
-- `bodyPart` (string, optional): Filter by body part
-- `appleCategory` (string, optional): Filter by Apple HealthKit category
-- `query` (string, optional): Text search across names and instructions
-- `limit` (number, optional): Max results (1-100, default 20)
-- `offset` (number, optional): Pagination offset (default 0)
+- `equipment` (string, optional) - Filter by equipment type
+- `category` (string, optional) - Filter by exercise category
+- `primaryMuscles` (array, optional) - Filter by primary muscles
+- `secondaryMuscles` (array, optional) - Filter by secondary muscles
+- `bodyPart` (string, optional) - Filter by body part
+- `appleCategory` (string, optional) - Filter by Apple HealthKit category
+- `query` (string, optional) - Text search across names and instructions
+- `limit` (number, 1-100, default: 20) - Maximum results
+- `offset` (number, default: 0) - Pagination offset
 
-### `get_exercise_by_id`
+**Example:**
+```json
+{
+  "equipment": "dumbbell",
+  "primaryMuscles": ["biceps"],
+  "limit": 10
+}
+```
+
+### 2. `get_exercise_by_id`
 Retrieve specific exercise by UUID.
 
 **Parameters:**
-- `id` (string, required): Exercise UUID
+- `id` (string, required) - Exercise UUID
 
-### `filter_exercises_by_equipment`
-Equipment-based filtering of exercises.
-
-**Parameters:**
-- `equipment` (string, required): Equipment type
-- `limit` (number, optional): Max results (default 20)
-- `offset` (number, optional): Pagination offset (default 0)
-
-### `get_exercises_by_category`
-Category-based filtering of exercises.
+### 3. `filter_exercises_by_equipment`
+Equipment-based filtering with pagination.
 
 **Parameters:**
-- `category` (string, required): Exercise category
-- `limit` (number, optional): Max results (default 20)
-- `offset` (number, optional): Pagination offset (default 0)
+- `equipment` (string, required) - Equipment type
+- `limit` (number, default: 20) - Maximum results
+- `offset` (number, default: 0) - Pagination offset
 
-### `find_exercise_alternatives`
-Find similar exercises targeting same muscles.
-
-**Parameters:**
-- `exerciseId` (string, required): Exercise ID to find alternatives for
-- `targetMuscles` (array, optional): Specific muscles to target
-- `equipment` (string, optional): Preferred equipment type
-- `limit` (number, optional): Max alternatives (default 10)
-
-### `validate_exercise_keys`
-Validate that exercise IDs exist in database.
+### 4. `get_exercises_by_category`
+Category-based filtering with pagination.
 
 **Parameters:**
-- `exerciseIds` (array, required): Array of exercise IDs to validate
+- `category` (string, required) - Exercise category
+- `limit` (number, default: 20) - Maximum results
+- `offset` (number, default: 0) - Pagination offset
 
-## MCP Resources
+### 5. `find_exercise_alternatives`
+Find similar exercises targeting the same muscles.
 
-### `exercise://all`
+**Parameters:**
+- `exerciseId` (string, required) - ID of exercise to find alternatives for
+- `targetMuscles` (array, optional) - Specific muscles to target
+- `equipment` (string, optional) - Preferred equipment type
+- `limit` (number, 1-50, default: 10) - Maximum alternatives
+
+### 6. `validate_exercise_keys`
+Validate that exercise IDs exist in the database.
+
+**Parameters:**
+- `exerciseIds` (array, required) - Array of exercise IDs to validate
+
+**Response:**
+```json
+{
+  "valid": ["uuid1", "uuid2"],
+  "invalid": ["bad-uuid"],
+  "totalChecked": 3,
+  "validCount": 2,
+  "invalidCount": 1
+}
+```
+
+## 📚 MCP Resources
+
+Access structured exercise data through 7 resource endpoints:
+
+### 1. `exercise://all`
 Paginated list of all exercises in the database.
 
-### `exercise://categories`
+### 2. `exercise://categories`
 List of all unique exercise categories.
 
-### `exercise://equipment-types`
+### 3. `exercise://equipment-types`
 List of all equipment types used in exercises.
 
-### `exercise://muscle-groups`
+### 4. `exercise://muscle-groups`
 List of all primary and secondary muscle groups.
 
-### `exercise://body-parts`
+### 5. `exercise://body-parts`
 List of all targeted body parts.
 
-### `exercise://apple-categories`
+### 6. `exercise://apple-categories`
 List of all Apple HealthKit exercise categories.
 
-### `exercise://stats`
-Statistics about the exercise database.
+### 7. `exercise://stats`
+Database statistics and metadata.
 
-## Claude Integration
+## 📝 MCP Prompts
 
-### Web Integration
+5 intelligent prompts for guided fitness interactions:
 
-1. **Register your MCP server** with Claude:
-   - Discovery URL: `https://your-server.com/.well-known/oauth-authorization-server`
-   - The server will handle OAuth registration automatically
+### 1. `create-workout-plan`
+Generate personalized workout plans.
 
-2. **Use in Claude conversations:**
+**Arguments:**
+- `goals` (required) - Fitness goals (strength, cardio, flexibility, etc.)
+- `equipment` (optional) - Available equipment
+- `experience` (required) - Experience level (beginner, intermediate, advanced)
+- `duration` (optional) - Workout duration in minutes
+- `frequency` (optional) - Workouts per week
+
+### 2. `exercise-form-guide`
+Get detailed form instructions and safety tips.
+
+**Arguments:**
+- `exercise_name` (required) - Name of the exercise
+- `focus_area` (optional) - Specific aspect to focus on
+
+### 3. `muscle-group-workout`
+Create focused workouts targeting specific muscle groups.
+
+**Arguments:**
+- `target_muscles` (required) - Primary muscle groups to target
+- `equipment` (optional) - Available equipment
+- `intensity` (optional) - Workout intensity (low, moderate, high)
+
+### 4. `exercise-alternatives`
+Find alternative exercises when you can't perform specific exercises.
+
+**Arguments:**
+- `original_exercise` (required) - Exercise to find alternatives for
+- `reason` (optional) - Reason for needing alternatives
+- `available_equipment` (optional) - Equipment available
+
+### 5. `progressive-overload`
+Create progressive training plans with structured advancement.
+
+**Arguments:**
+- `current_exercises` (required) - Current exercises in routine
+- `current_level` (optional) - Current performance level
+- `timeline` (optional) - Timeline for progression
+
+## 💾 Database Structure
+
+Each exercise contains:
+
+```json
+{
+  "id": "874ce7a1-2022-449f-92c4-742c17be51bb",
+  "name": "3/4 sit-up",
+  "equipment": "body weight",
+  "category": "abs",
+  "appleCategory": "coreTraining",
+  "bodyPart": "waist",
+  "primaryMuscles": ["abs"],
+  "secondaryMuscles": ["hip flexors", "lower back"],
+  "instructions": [
+    "Lie flat on your back with your knees bent...",
+    "Place your hands behind your head...",
+    "Engaging your abs, slowly lift your upper body..."
+  ],
+  "images": ["E3H0-SVdQacCFN.gif"]
+}
+```
+
+### Database Statistics
+- **Total Exercises:** 1,324
+- **Categories:** 19 unique categories
+- **Equipment Types:** 15+ types
+- **Muscle Groups:** 25+ primary and secondary muscles
+- **Body Parts:** 10+ targeted areas
+
+## 🎯 Usage Examples
+
+### Claude Web Integration
+
+1. **Add Server to Claude:**
+   - Use discovery URL: `https://your-server.com/.well-known/oauth-authorization-server`
+   - Claude will auto-register and authenticate
+
+2. **Example Queries:**
    ```
    Find me 5 bodyweight exercises for abs
+
    Search for dumbbell exercises targeting biceps
-   Get alternatives to exercise ID 874ce7a1-2022-449f-92c4-742c17be51bb
+
+   Create a beginner workout plan for strength building
+
+   Get alternatives to bench press for home workouts
+
+   Show me proper form for deadlifts
    ```
 
 ### API Integration
@@ -200,8 +385,7 @@ import { MCPClient } from '@modelcontextprotocol/sdk';
 const client = new MCPClient({
   serverUrl: 'https://your-server.com/mcp/sse',
   authentication: {
-    type: 'oauth2',
-    // Server handles OAuth flow automatically
+    type: 'oauth2'
   }
 });
 
@@ -211,54 +395,68 @@ const searchResult = await client.callTool('search_exercises', {
   primaryMuscles: ['biceps'],
   limit: 10
 });
+
+// Get exercise details
+const exercise = await client.callTool('get_exercise_by_id', {
+  id: '874ce7a1-2022-449f-92c4-742c17be51bb'
+});
+
+// Use prompts
+const workoutPlan = await client.getPrompt('create-workout-plan', {
+  goals: 'strength building',
+  experience: 'beginner',
+  equipment: 'dumbbells'
+});
 ```
 
-## Deployment
+## 🚀 Deployment
 
-### Railway
+### Railway Deployment
 
-1. **Connect your GitHub repository** to Railway
-2. **Set environment variables** in Railway dashboard
-3. **Deploy automatically** on push to main branch
+1. **Connect Repository:** Link your GitHub repo to Railway
+2. **Environment Variables:** Set required environment variables in Railway dashboard
+3. **Deploy:** Railway will automatically deploy on push to main branch
 
-The server is optimized for Railway with:
-- PORT environment variable support
-- Health check endpoint
-- Graceful shutdown handling
-- Auto-scaling compatibility
-
-### Docker
+### Docker Deployment
 
 ```dockerfile
 FROM node:18-alpine
+
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --only=production
+
 COPY . .
 RUN npm run build
+
 EXPOSE 3000
 CMD ["npm", "start"]
 ```
 
-## Development
-
-### Scripts
+### Environment Configuration
 
 ```bash
-npm run dev        # Development with hot reload
-npm run build      # Compile TypeScript
-npm run start      # Start production server
-npm run test       # Run tests
-npm run lint       # Lint code
-npm run clean      # Clean build artifacts
+# Production settings
+NODE_ENV=production
+PORT=3000
+
+# Use Railway's provided domain or your custom domain
+BASE_URL=https://your-domain.com
+
+# Secure JWT secret (generate with openssl rand -hex 32)
+JWT_SECRET=your-production-jwt-secret
+
+# Production CORS origins
+CORS_ORIGINS=https://claude.ai,https://*.anthropic.com
 ```
+
+## 🔧 Development
 
 ### Project Structure
-
 ```
-exercise-mcp-server/
+fittality-exercises-mcp/
 ├── src/
-│   ├── index.ts              # Main server entry point
+│   ├── index.ts              # Main server with HTTP endpoints
 │   ├── mcpServer.ts          # MCP protocol implementation
 │   ├── authServer.ts         # OAuth authentication
 │   ├── exerciseService.ts    # Exercise business logic
@@ -266,110 +464,82 @@ exercise-mcp-server/
 │   └── utils.ts              # Helper functions
 ├── data/
 │   └── exercises.json        # Exercise database
-├── dist/                     # Compiled output
-├── package.json
-├── tsconfig.json
-├── .env.example
+├── dist/                     # Compiled TypeScript
 └── README.md
 ```
 
-### Testing
+### Scripts
 
 ```bash
-# Test OAuth flow
-curl -X POST http://localhost:3000/oauth/register \
-  -H "Content-Type: application/json" \
-  -d '{"client_name": "Test Client"}'
-
-# Test health endpoint
-curl http://localhost:3000/health
-
-# Test MCP discovery
-curl http://localhost:3000/.well-known/oauth-authorization-server
+npm run build    # Compile TypeScript
+npm start        # Start production server
+npm run dev      # Start development server with watch
+npm test         # Run tests (when implemented)
+npm run clean    # Clean build directory
 ```
 
-## Performance
+### Adding New Exercises
 
-- **Sub-100ms response times** for most operations
-- **Efficient indexing** for fast search and filtering
-- **Pagination support** for large result sets
-- **Memory-optimized** data structures
-- **Caching** for frequently accessed data
+1. **Format:** Follow the exercise schema in `src/types.ts`
+2. **Validation:** All exercises are validated with Zod schemas
+3. **Indexing:** Restart server to rebuild search indexes
+4. **Categories:** New categories are automatically indexed
 
-## Security
+### Performance Monitoring
 
-- **OAuth 2.0 compliant** authentication
-- **JWT tokens** with configurable expiration
-- **CORS protection** with whitelist origins
-- **Input validation** using Zod schemas
-- **Rate limiting** on authentication endpoints
+The server includes built-in performance monitoring:
 
-## Monitoring
+- **Tool Execution Timing** - All MCP tool calls are timed
+- **Request Logging** - Comprehensive request/response logging
+- **Health Metrics** - Database statistics and service health
+- **Error Tracking** - Enhanced error context and debugging
 
-### Health Check Response
-```json
-{
-  "status": "healthy",
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  "version": "1.0.0",
-  "services": {
-    "mcp": "connected",
-    "exercises": "healthy",
-    "database": {
-      "totalExercises": 1300,
-      "categoriesLoaded": 15,
-      "lastUpdated": "2024-01-01T00:00:00.000Z"
-    }
-  },
-  "endpoints": {
-    "mcp_sse": "/mcp/sse",
-    "oauth_discovery": "/.well-known/oauth-authorization-server",
-    "registration": "/oauth/register"
-  }
-}
-```
+## 🔒 Security
 
-## Troubleshooting
+- **OAuth 2.0** - Standard authentication for client access
+- **CORS Protection** - Configurable allowed origins
+- **Input Validation** - Zod schema validation for all inputs
+- **Rate Limiting** - Planned for production endpoints
+- **Error Sanitization** - Prevent sensitive data leakage
 
-### Common Issues
+## 📊 Monitoring
 
-**CORS errors with Claude web:**
-- Ensure `https://claude.ai` is in CORS_ORIGINS
-- Check OAuth discovery endpoint returns valid JSON
+### Health Checks
+- **Endpoint:** `GET /health`
+- **Database Status:** Exercise data loading and indexing
+- **Service Health:** MCP connection status
+- **Capabilities:** Available tools, resources, and prompts
 
-**MCP connection fails:**
-- Verify authentication token is valid
-- Check server logs for detailed error messages
-- Ensure SSE transport is properly configured
+### Logging
+- **Structured Logging** - JSON formatted logs with context
+- **Performance Metrics** - Operation timing and success rates
+- **Error Tracking** - Detailed error context and stack traces
+- **Request Tracing** - Full request lifecycle logging
 
-**Exercise data not loading:**
-- Verify EXERCISE_DATA_PATH points to valid JSON file
-- Check file permissions and format
-- Review startup logs for data validation errors
-
-### Debugging
-
-Enable verbose logging:
-```env
-LOG_LEVEL=debug
-NODE_ENV=development
-```
-
-## Contributing
+## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Submit a pull request
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-## License
+## 📄 License
 
-MIT License - see LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Support
+## 🆘 Support
 
-For issues and questions:
-- Create an issue on GitHub
-- Check the troubleshooting section
-- Review server logs for detailed error information
+- **Issues:** [GitHub Issues](https://github.com/your-username/fittality-exercises-mcp/issues)
+- **Documentation:** [MCP Documentation](https://modelcontextprotocol.io)
+- **Discord:** [MCP Community](https://discord.gg/mcp)
+
+## 🎉 Acknowledgments
+
+- [Model Context Protocol](https://modelcontextprotocol.io) - The protocol specification
+- [Anthropic](https://anthropic.com) - Claude AI integration
+- Exercise database compiled from various fitness resources
+
+---
+
+**Built with ❤️ for the fitness and AI community**

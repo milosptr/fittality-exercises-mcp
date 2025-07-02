@@ -119,6 +119,12 @@ app.get('/health', (req, res) => {
       oauth_discovery: '/.well-known/oauth-authorization-server',
       registration: '/oauth/register',
     },
+    capabilities: {
+      tools: 6,
+      resources: 7,
+      prompts: 5,
+      features: ['tools', 'resources', 'prompts', 'structured_content', 'performance_monitoring']
+    },
   };
 
   const statusCode = health.status === 'healthy' ? 200 : 503;

@@ -144,6 +144,12 @@ export interface HealthStatus {
     oauth_discovery: string;
     registration: string;
   };
+  capabilities?: {
+    tools: number;
+    resources: number;
+    prompts: number;
+    features: string[];
+  };
 }
 
 export interface Config {
