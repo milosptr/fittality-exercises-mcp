@@ -122,6 +122,38 @@ export class AuthServer {
     try {
       const { client_id, redirect_uri, response_type, scope, state } = req.query;
 
+      logInfo('OAuth authorization requested', {
+        clientId: client_id,
+        responseType: response_type,
+        scope: scope,
+        userAgent: req.headers['user-agent']
+      });
+
+      // Validate required parameters
+      if (!client_id) {
+        res.status(400).json({
+          error: 'invalid_request',
+          error_description: 'Missing required parameter: client_id',
+        });
+        return;
+      }
+
+      if (!response_type) {
+        res.status(400).json({
+          error: 'invalid_request',
+          error_description: 'Missing required parameter: response_type',
+        });
+        return;
+      }
+
+      if (response_type !== 'code') {
+        res.status(400).json({
+          error: 'unsupported_response_type',
+          error_description: 'Only response_type=code is supported',
+        });
+        return;
+      }
+
       // Validate client
       const client = this.clients.get(client_id as string);
       if (!client) {
@@ -157,10 +189,14 @@ export class AuthServer {
         scope
       });
     } catch (error) {
-      logError('Authorization failed', error, { query: req.query });
-      res.status(400).json({
-        error: 'invalid_request',
-        error_description: 'Invalid authorization request',
+      logError('Authorization failed', error, {
+        query: req.query,
+        userAgent: req.headers['user-agent'],
+        origin: req.headers.origin
+      });
+      res.status(500).json({
+        error: 'server_error',
+        error_description: 'Internal server error during authorization',
       });
     }
   }
