@@ -30,7 +30,7 @@ export class AuthServer {
     baseUrl: string;
   };
 
-  // Pre-configured clients for stable integrations
+    // Pre-configured clients for stable integrations
   private static readonly WELL_KNOWN_CLIENTS = {
     'claude-mcp-client': {
       client_id: 'claude-mcp-client',
@@ -40,6 +40,24 @@ export class AuthServer {
     },
     'claude-web-client': {
       client_id: 'claude-web-client',
+      client_secret: 'not-required-for-public-client',
+      client_id_issued_at: Math.floor(Date.now() / 1000),
+      scope: 'mcp:read mcp:write',
+    },
+    'anthropic-claude-client': {
+      client_id: 'anthropic-claude-client',
+      client_secret: 'not-required-for-public-client',
+      client_id_issued_at: Math.floor(Date.now() / 1000),
+      scope: 'mcp:read mcp:write',
+    },
+    'claude-desktop': {
+      client_id: 'claude-desktop',
+      client_secret: 'not-required-for-public-client',
+      client_id_issued_at: Math.floor(Date.now() / 1000),
+      scope: 'mcp:read mcp:write',
+    },
+    'default-mcp-client': {
+      client_id: 'default-mcp-client',
       client_secret: 'not-required-for-public-client',
       client_id_issued_at: Math.floor(Date.now() / 1000),
       scope: 'mcp:read mcp:write',
@@ -213,11 +231,30 @@ export class AuthServer {
         return;
       }
 
-            // Validate client (check both dynamic registrations and well-known clients)
+                  // Validate client (check both dynamic registrations and well-known clients)
       let client = this.clients.get(client_id as string);
       if (!client) {
         // Check well-known clients
         client = (AuthServer.WELL_KNOWN_CLIENTS as any)[client_id as string];
+      }
+
+      if (!client) {
+        // Auto-register clients that follow our expected pattern (for cached Claude clients)
+        if (typeof client_id === 'string' && client_id.startsWith(this.config.clientIdPrefix)) {
+          logInfo('Auto-registering cached client', {
+            clientId: client_id,
+            userAgent: req.headers['user-agent']
+          });
+
+          client = {
+            client_id: client_id,
+            client_secret: 'not-required-for-public-client',
+            client_id_issued_at: Math.floor(Date.now() / 1000),
+            scope: 'mcp:read mcp:write',
+          };
+
+          this.clients.set(client_id, client);
+        }
       }
 
       if (!client) {
@@ -297,11 +334,30 @@ export class AuthServer {
 
       const validatedData = TokenRequestSchema.parse(req.body);
 
-      // Validate client (check both dynamic registrations and well-known clients)
+            // Validate client (check both dynamic registrations and well-known clients)
       let client = this.clients.get(validatedData.client_id);
       if (!client) {
         // Check well-known clients
         client = (AuthServer.WELL_KNOWN_CLIENTS as any)[validatedData.client_id];
+      }
+
+      if (!client) {
+        // Auto-register clients that follow our expected pattern (for cached Claude clients)
+        if (validatedData.client_id.startsWith(this.config.clientIdPrefix)) {
+          logInfo('Auto-registering cached client for token exchange', {
+            clientId: validatedData.client_id,
+            userAgent: req.headers['user-agent']
+          });
+
+          client = {
+            client_id: validatedData.client_id,
+            client_secret: 'not-required-for-public-client',
+            client_id_issued_at: Math.floor(Date.now() / 1000),
+            scope: 'mcp:read mcp:write',
+          };
+
+          this.clients.set(validatedData.client_id, client);
+        }
       }
 
       if (!client) {
