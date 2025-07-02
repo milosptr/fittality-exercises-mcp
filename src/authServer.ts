@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import crypto from 'crypto';
 import {
   ClientRegistration,
   ClientRegistrationResponse,
@@ -55,6 +56,7 @@ export class AuthServer {
       response_types_supported: ['code'],
       grant_types_supported: ['authorization_code', 'client_credentials'],
       token_endpoint_auth_methods_supported: ['client_secret_basic', 'none'],
+      code_challenge_methods_supported: ['S256'],
     };
   }
 
@@ -70,6 +72,7 @@ export class AuthServer {
       response_types_supported: ['code'],
       grant_types_supported: ['authorization_code', 'client_credentials'],
       token_endpoint_auth_methods_supported: ['client_secret_basic', 'none'],
+      code_challenge_methods_supported: ['S256'],
     };
   }
 
@@ -120,12 +123,22 @@ export class AuthServer {
    */
   async authorize(req: Request, res: Response): Promise<void> {
     try {
-      const { client_id, redirect_uri, response_type, scope, state } = req.query;
+      const {
+        client_id,
+        redirect_uri,
+        response_type,
+        scope,
+        state,
+        code_challenge,
+        code_challenge_method
+      } = req.query;
 
       logInfo('OAuth authorization requested', {
         clientId: client_id,
         responseType: response_type,
         scope: scope,
+        codeChallenge: code_challenge ? '[PRESENT]' : '[MISSING]',
+        codeChallengeMethod: code_challenge_method,
         userAgent: req.headers['user-agent']
       });
 
@@ -154,6 +167,31 @@ export class AuthServer {
         return;
       }
 
+      // PKCE validation (required for OAuth 2.1 and MCP)
+      if (!code_challenge) {
+        res.status(400).json({
+          error: 'invalid_request',
+          error_description: 'Missing required parameter: code_challenge (PKCE required)',
+        });
+        return;
+      }
+
+      if (!code_challenge_method) {
+        res.status(400).json({
+          error: 'invalid_request',
+          error_description: 'Missing required parameter: code_challenge_method',
+        });
+        return;
+      }
+
+      if (code_challenge_method !== 'S256') {
+        res.status(400).json({
+          error: 'invalid_request',
+          error_description: 'Only code_challenge_method=S256 is supported',
+        });
+        return;
+      }
+
       // Validate client
       const client = this.clients.get(client_id as string);
       if (!client) {
@@ -166,7 +204,13 @@ export class AuthServer {
 
       // For simplified implementation, auto-approve the request
       const authCode = generateToken(
-        { client_id, scope, redirect_uri },
+        {
+          client_id,
+          scope,
+          redirect_uri,
+          code_challenge,
+          code_challenge_method
+        },
         this.config.jwtSecret,
         300 // 5 minutes
       );
@@ -252,6 +296,32 @@ export class AuthServer {
 
         try {
           const codeData = verifyToken(validatedData.code, this.config.jwtSecret);
+
+          // PKCE verification (required for OAuth 2.1)
+          if (codeData.code_challenge) {
+            const codeVerifier = (req.body as any).code_verifier;
+            if (!codeVerifier) {
+              res.status(400).json({
+                error: 'invalid_request',
+                error_description: 'Missing code_verifier for PKCE verification',
+              });
+              return;
+            }
+
+            // Verify code_challenge
+            const expectedChallenge = crypto
+              .createHash('sha256')
+              .update(codeVerifier)
+              .digest('base64url');
+
+            if (expectedChallenge !== codeData.code_challenge) {
+              res.status(400).json({
+                error: 'invalid_grant',
+                error_description: 'PKCE verification failed',
+              });
+              return;
+            }
+          }
 
           accessToken = generateToken(
             {
