@@ -3,6 +3,7 @@ import {
   ResourceTemplate,
 } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import express from "express";
 import { loadExercises, getExerciseById } from "./exercise-functions/loader.js";
 import { getDatabaseStats, getDatabaseHealth } from "./exercise-functions/health.js";
@@ -120,54 +121,70 @@ server.resource(
   }
 );
 
-// Create Express app for SSE transport
-const app = express();
-app.use(express.json());
+// Determine transport mode based on environment
+// Claude Desktop uses stdio, so default to stdio unless explicitly requesting HTTP
+const isHttpMode = process.argv.includes('--http') || process.env.PORT;
+const isStdioMode = !isHttpMode;
 
-let transport: SSEServerTransport | undefined = undefined;
-
-// Health check endpoint
-app.get("/health", async (req, res) => {
-  try {
-    // Basic health check - ensure exercises are loaded
-    const exerciseCount = (await import("./exercise-functions/loader.js")).getExerciseData().length;
-    res.json({
-      status: "healthy",
-      service: "Exercise Database MCP Server",
-      version: "1.0.0",
-      exerciseCount,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: "unhealthy",
-      service: "Exercise Database MCP Server",
-      error: error instanceof Error ? error.message : "Unknown error",
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// SSE endpoint for MCP communication
-app.get("/sse", async (req, res) => {
-  console.log("New SSE connection established");
-  transport = new SSEServerTransport("/messages", res);
+if (isStdioMode) {
+  // Claude Desktop mode - use stdio transport
+  console.error("Starting Exercise Database MCP Server in stdio mode...");
+  const transport = new StdioServerTransport();
   await server.connect(transport);
-});
+  console.error("MCP Server connected via stdio transport");
+} else {
+  // HTTP mode - use SSE transport with Express
+  console.error("Starting Exercise Database MCP Server in HTTP mode...");
 
-// POST endpoint for handling MCP messages
-app.post("/messages", async (req, res) => {
-  if (!transport) {
-    res.status(400).json({ error: "No SSE transport connection established" });
-    return;
-  }
-  await transport.handlePostMessage(req, res);
-});
+  // Create Express app for SSE transport
+  const app = express();
+  app.use(express.json());
 
-// Start the server
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log(`Exercise Database MCP Server is running on port ${PORT}`);
-  console.log(`Health check available at: http://localhost:${PORT}/health`);
-  console.log(`SSE endpoint available at: http://localhost:${PORT}/sse`);
-});
+  let transport: SSEServerTransport | undefined = undefined;
+
+  // Health check endpoint
+  app.get("/health", async (req, res) => {
+    try {
+      // Basic health check - ensure exercises are loaded
+      const exerciseCount = (await import("./exercise-functions/loader.js")).getExerciseData().length;
+      res.json({
+        status: "healthy",
+        service: "Exercise Database MCP Server",
+        version: "1.0.0",
+        exerciseCount,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        status: "unhealthy",
+        service: "Exercise Database MCP Server",
+        error: error instanceof Error ? error.message : "Unknown error",
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // SSE endpoint for MCP communication
+  app.get("/sse", async (req, res) => {
+    console.error("New SSE connection established");
+    transport = new SSEServerTransport("/messages", res);
+    await server.connect(transport);
+  });
+
+  // POST endpoint for handling MCP messages
+  app.post("/messages", async (req, res) => {
+    if (!transport) {
+      res.status(400).json({ error: "No SSE transport connection established" });
+      return;
+    }
+    await transport.handlePostMessage(req, res);
+  });
+
+  // Start the HTTP server
+  const PORT = process.env.PORT || 8080;
+  app.listen(PORT, () => {
+    console.error(`Exercise Database MCP Server is running on port ${PORT}`);
+    console.error(`Health check available at: http://localhost:${PORT}/health`);
+    console.error(`SSE endpoint available at: http://localhost:${PORT}/sse`);
+  });
+}
