@@ -49,6 +49,7 @@ export class ExerciseMCPServer {
         tools: [
           {
             name: 'search_exercises',
+            title: 'Search Exercises', // Add title as per spec
             description: 'Advanced multi-field search with relevance scoring for exercises',
             inputSchema: {
               type: 'object',
@@ -98,9 +99,33 @@ export class ExerciseMCPServer {
                 },
               },
             },
+            // Add output schema for better validation
+            outputSchema: {
+              type: 'object',
+              properties: {
+                exercises: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string' },
+                      name: { type: 'string' },
+                      equipment: { type: 'string' },
+                      category: { type: 'string' },
+                      relevanceScore: { type: 'number' }
+                    }
+                  }
+                },
+                total: { type: 'number' },
+                limit: { type: 'number' },
+                offset: { type: 'number' }
+              },
+              required: ['exercises', 'total', 'limit', 'offset']
+            }
           },
           {
             name: 'get_exercise_by_id',
+            title: 'Get Exercise by ID',
             description: 'Retrieve specific exercise by UUID',
             inputSchema: {
               type: 'object',
@@ -112,9 +137,26 @@ export class ExerciseMCPServer {
               },
               required: ['id'],
             },
+            outputSchema: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                name: { type: 'string' },
+                equipment: { type: 'string' },
+                category: { type: 'string' },
+                appleCategory: { type: 'string' },
+                bodyPart: { type: 'string' },
+                primaryMuscles: { type: 'array', items: { type: 'string' } },
+                secondaryMuscles: { type: 'array', items: { type: 'string' } },
+                instructions: { type: 'array', items: { type: 'string' } },
+                images: { type: 'array', items: { type: 'string' } }
+              },
+              required: ['id', 'name', 'equipment', 'category']
+            }
           },
           {
             name: 'filter_exercises_by_equipment',
+            title: 'Filter by Equipment',
             description: 'Equipment-based filtering of exercises',
             inputSchema: {
               type: 'object',
@@ -139,9 +181,21 @@ export class ExerciseMCPServer {
               },
               required: ['equipment'],
             },
+            outputSchema: {
+              type: 'object',
+              properties: {
+                exercises: { type: 'array' },
+                total: { type: 'number' },
+                equipment: { type: 'string' },
+                limit: { type: 'number' },
+                offset: { type: 'number' }
+              },
+              required: ['exercises', 'total', 'equipment', 'limit', 'offset']
+            }
           },
           {
             name: 'get_exercises_by_category',
+            title: 'Get Exercises by Category',
             description: 'Category-based filtering of exercises',
             inputSchema: {
               type: 'object',
@@ -166,9 +220,21 @@ export class ExerciseMCPServer {
               },
               required: ['category'],
             },
+            outputSchema: {
+              type: 'object',
+              properties: {
+                exercises: { type: 'array' },
+                total: { type: 'number' },
+                category: { type: 'string' },
+                limit: { type: 'number' },
+                offset: { type: 'number' }
+              },
+              required: ['exercises', 'total', 'category', 'limit', 'offset']
+            }
           },
           {
             name: 'find_exercise_alternatives',
+            title: 'Find Exercise Alternatives',
             description: 'Find similar exercises targeting same muscles',
             inputSchema: {
               type: 'object',
@@ -196,9 +262,20 @@ export class ExerciseMCPServer {
               },
               required: ['exerciseId'],
             },
+            outputSchema: {
+              type: 'object',
+              properties: {
+                originalExercise: { type: 'object' },
+                alternatives: { type: 'array' },
+                count: { type: 'number' },
+                criteria: { type: 'object' }
+              },
+              required: ['originalExercise', 'alternatives', 'count']
+            }
           },
           {
             name: 'validate_exercise_keys',
+            title: 'Validate Exercise Keys',
             description: 'Validate that exercise IDs exist in the database',
             inputSchema: {
               type: 'object',
@@ -211,6 +288,17 @@ export class ExerciseMCPServer {
               },
               required: ['exerciseIds'],
             },
+            outputSchema: {
+              type: 'object',
+              properties: {
+                valid: { type: 'array', items: { type: 'string' } },
+                invalid: { type: 'array', items: { type: 'string' } },
+                totalChecked: { type: 'number' },
+                validCount: { type: 'number' },
+                invalidCount: { type: 'number' }
+              },
+              required: ['valid', 'invalid', 'totalChecked', 'validCount', 'invalidCount']
+            }
           },
         ],
       };
@@ -342,6 +430,8 @@ export class ExerciseMCPServer {
           text: JSON.stringify(result, null, 2),
         },
       ],
+      // Provide structured content for better client integration
+      structuredContent: result,
     };
   }
 
@@ -360,6 +450,7 @@ export class ExerciseMCPServer {
           text: JSON.stringify(exercise, null, 2),
         },
       ],
+      structuredContent: exercise,
     };
   }
 
@@ -453,6 +544,7 @@ export class ExerciseMCPServer {
           text: JSON.stringify(result, null, 2),
         },
       ],
+      structuredContent: result,
     };
   }
 
