@@ -137,9 +137,14 @@ export class AuthServer {
         clientId: client_id,
         responseType: response_type,
         scope: scope,
+        redirectUri: redirect_uri,
+        state: state,
         codeChallenge: code_challenge ? '[PRESENT]' : '[MISSING]',
         codeChallengeMethod: code_challenge_method,
-        userAgent: req.headers['user-agent']
+        userAgent: req.headers['user-agent'],
+        origin: req.headers.origin,
+        referer: req.headers.referer,
+        allQueryParams: req.query
       });
 
       // Validate required parameters
@@ -195,9 +200,17 @@ export class AuthServer {
       // Validate client
       const client = this.clients.get(client_id as string);
       if (!client) {
+        logInfo('Client not found in registry', {
+          requestedClientId: client_id,
+          registeredClientsCount: this.clients.size,
+          registeredClientIds: Array.from(this.clients.keys()),
+          userAgent: req.headers['user-agent']
+        });
+
         res.status(400).json({
           error: 'invalid_client',
-          error_description: 'Unknown client',
+          error_description: 'Client not registered. Please register client first using Dynamic Client Registration at /oauth/register',
+          hint: 'Client registrations are temporary and may be lost on server restart. Re-register if needed.',
         });
         return;
       }
