@@ -57,72 +57,83 @@ export const oauthHandlers = {
     res.redirect(redirectUrl.toString());
   },
 
-  // Token endpoint
+    // Token endpoint
   token: (req: any, res: any) => {
-    const { grant_type, code, client_id, client_secret, code_verifier } = req.body;
+    try {
+      const { grant_type, code, client_id, client_secret, code_verifier } = req.body;
 
-    if (grant_type !== 'authorization_code' || !code || !client_id) {
-      res.status(400).json({ error: 'invalid_request' });
-      return;
-    }
-
-    // Accept Claude Web client IDs
-    const isValidClient = client_id === 'claude-web' || client_id.toString().startsWith('exercise-mcp-client-');
-    if (!isValidClient) {
-      res.status(401).json({ error: 'invalid_client' });
-      return;
-    }
-
-    const codeData = codes.get(code);
-    if (!codeData || Date.now() > codeData.expires) {
-      res.status(400).json({ error: 'invalid_grant' });
-      return;
-    }
-
-    // Validate authentication: either client_secret or PKCE
-    if (codeData.codeChallenge) {
-      // PKCE flow - validate code_verifier
-      if (!code_verifier) {
-        res.status(400).json({ error: 'invalid_request', error_description: 'code_verifier required for PKCE' });
+      if (grant_type !== 'authorization_code' || !code || !client_id) {
+        res.status(400).json({ error: 'invalid_request' });
         return;
       }
 
-      // For S256, we need to hash the verifier and compare with challenge
-      if (codeData.codeChallengeMethod === 'S256') {
-        const hash = crypto.createHash('sha256').update(code_verifier).digest();
-        const challengeFromVerifier = hash.toString('base64url');
-        if (challengeFromVerifier !== codeData.codeChallenge) {
-          res.status(400).json({ error: 'invalid_grant', error_description: 'invalid code_verifier' });
-          return;
-        }
-      } else if (codeData.codeChallengeMethod === 'plain') {
-        if (code_verifier !== codeData.codeChallenge) {
-          res.status(400).json({ error: 'invalid_grant', error_description: 'invalid code_verifier' });
-          return;
-        }
-      }
-    } else {
-      // Traditional client_secret flow
-      if (client_secret !== CLIENT_SECRET) {
+      // Accept Claude Web client IDs
+      const isValidClient = client_id === 'claude-web' || client_id.toString().startsWith('exercise-mcp-client-');
+      if (!isValidClient) {
         res.status(401).json({ error: 'invalid_client' });
         return;
       }
+
+      const codeData = codes.get(code);
+      if (!codeData || Date.now() > codeData.expires) {
+        res.status(400).json({ error: 'invalid_grant' });
+        return;
+      }
+
+      // Validate authentication: either client_secret or PKCE
+      if (codeData.codeChallenge) {
+        // PKCE flow - validate code_verifier
+        if (!code_verifier) {
+          res.status(400).json({ error: 'invalid_request', error_description: 'code_verifier required for PKCE' });
+          return;
+        }
+
+        // For S256, we need to hash the verifier and compare with challenge
+        if (codeData.codeChallengeMethod === 'S256') {
+          try {
+            const hash = crypto.createHash('sha256').update(code_verifier, 'utf8').digest();
+            const challengeFromVerifier = hash.toString('base64url');
+            if (challengeFromVerifier !== codeData.codeChallenge) {
+              res.status(400).json({ error: 'invalid_grant', error_description: 'invalid code_verifier' });
+              return;
+            }
+          } catch (cryptoError) {
+            console.error('PKCE validation error:', cryptoError);
+            res.status(400).json({ error: 'invalid_grant', error_description: 'PKCE validation failed' });
+            return;
+          }
+        } else if (codeData.codeChallengeMethod === 'plain') {
+          if (code_verifier !== codeData.codeChallenge) {
+            res.status(400).json({ error: 'invalid_grant', error_description: 'invalid code_verifier' });
+            return;
+          }
+        }
+      } else {
+        // Traditional client_secret flow
+        if (client_secret !== CLIENT_SECRET) {
+          res.status(401).json({ error: 'invalid_client' });
+          return;
+        }
+      }
+
+      // Generate access token
+      const accessToken = crypto.randomBytes(32).toString('hex');
+      tokens.set(accessToken, {
+        expires: Date.now() + 3600000, // 1 hour
+        client: client_id
+      });
+
+      codes.delete(code); // Remove used code
+
+      res.json({
+        access_token: accessToken,
+        token_type: 'Bearer',
+        expires_in: 3600
+      });
+    } catch (error) {
+      console.error('Token endpoint error:', error);
+      res.status(500).json({ error: 'server_error', error_description: 'Internal server error' });
     }
-
-    // Generate access token
-    const accessToken = crypto.randomBytes(32).toString('hex');
-    tokens.set(accessToken, {
-      expires: Date.now() + 3600000, // 1 hour
-      client: client_id
-    });
-
-    codes.delete(code); // Remove used code
-
-    res.json({
-      access_token: accessToken,
-      token_type: 'Bearer',
-      expires_in: 3600
-    });
   },
 
   // Token revocation

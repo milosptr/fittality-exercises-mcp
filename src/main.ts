@@ -171,6 +171,66 @@ if (isStdioMode) {
   app.post("/token", oauthHandlers.token);
   app.post("/revoke", oauthHandlers.revoke);
 
+    // Root MCP endpoint for Claude Web (requires OAuth)
+  app.post("/", oauthHandlers.validateToken, async (req, res) => {
+    console.error("Claude Web MCP request to root endpoint:", JSON.stringify(req.body, null, 2));
+
+    // Handle JSON-RPC MCP requests
+    try {
+      const { method, params, id } = req.body;
+
+      // Basic JSON-RPC response structure
+      const jsonRpcResponse = {
+        jsonrpc: "2.0",
+        id: id || null
+      };
+
+      // Handle basic MCP methods
+      if (method === "initialize") {
+        res.json({
+          ...jsonRpcResponse,
+          result: {
+            protocolVersion: "2024-11-05",
+            capabilities: {
+              tools: {},
+              resources: {}
+            },
+            serverInfo: {
+              name: "Exercise Database",
+              version: "1.0.0"
+            }
+          }
+        });
+      } else if (method === "ping") {
+        res.json({
+          ...jsonRpcResponse,
+          result: {}
+        });
+      } else {
+        // For other methods, return method not found
+        res.json({
+          ...jsonRpcResponse,
+          error: {
+            code: -32601,
+            message: "Method not found",
+            data: { method }
+          }
+        });
+      }
+    } catch (error) {
+      console.error("MCP request error:", error);
+      res.status(500).json({
+        jsonrpc: "2.0",
+        id: req.body?.id || null,
+        error: {
+          code: -32603,
+          message: "Internal error",
+          data: error instanceof Error ? error.message : "Unknown error"
+        }
+      });
+    }
+  });
+
   // Protected MCP endpoints for Claude Web (require OAuth)
   app.get("/mcp/sse", oauthHandlers.validateToken, async (req, res) => {
     console.error("New OAuth-protected SSE connection established");
