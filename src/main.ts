@@ -149,7 +149,8 @@ if (isStdioMode) {
     next();
   });
 
-  let transport: SSEServerTransport | undefined = undefined;
+  // Store active transports by connection ID
+  const activeTransports = new Map<string, SSEServerTransport>();
 
   // Health check endpoint
   app.get("/health", async (req, res) => {
@@ -235,33 +236,81 @@ if (isStdioMode) {
 
   // MCP endpoints for Claude Web (publicly accessible)
   app.get("/mcp/sse", async (req, res) => {
-    console.error("New SSE connection established");
-    transport = new SSEServerTransport("/mcp/messages", res);
-    await server.connect(transport);
+    try {
+      console.error("New MCP SSE connection established");
+      const connectionId = `mcp-${Date.now()}-${Math.random()}`;
+      const transport = new SSEServerTransport("/mcp/messages", res);
+      activeTransports.set(connectionId, transport);
+
+      // Clean up on disconnect
+      req.on('close', () => {
+        activeTransports.delete(connectionId);
+        console.error("MCP SSE connection closed");
+      });
+
+      await server.connect(transport);
+    } catch (error) {
+      console.error("Error establishing MCP SSE connection:", error);
+      res.status(500).json({ error: "Failed to establish SSE connection" });
+    }
   });
 
   app.post("/mcp/messages", async (req, res) => {
+    // Find an active transport (for simplicity, use the most recent one)
+    const transports = Array.from(activeTransports.values());
+    const transport = transports[transports.length - 1];
+
     if (!transport) {
       res.status(400).json({ error: "No SSE transport connection established" });
       return;
     }
-    await transport.handlePostMessage(req, res);
+
+    try {
+      await transport.handlePostMessage(req, res);
+    } catch (error) {
+      console.error("Error handling MCP message:", error);
+      res.status(500).json({ error: "Failed to handle message" });
+    }
   });
 
   // SSE endpoint for MCP communication
   app.get("/sse", async (req, res) => {
-    console.error("New SSE connection established");
-    transport = new SSEServerTransport("/messages", res);
-    await server.connect(transport);
+    try {
+      console.error("New SSE connection established");
+      const connectionId = `sse-${Date.now()}-${Math.random()}`;
+      const transport = new SSEServerTransport("/messages", res);
+      activeTransports.set(connectionId, transport);
+
+      // Clean up on disconnect
+      req.on('close', () => {
+        activeTransports.delete(connectionId);
+        console.error("SSE connection closed");
+      });
+
+      await server.connect(transport);
+    } catch (error) {
+      console.error("Error establishing SSE connection:", error);
+      res.status(500).json({ error: "Failed to establish SSE connection" });
+    }
   });
 
   // POST endpoint for handling MCP messages
   app.post("/messages", async (req, res) => {
+    // Find an active transport (for simplicity, use the most recent one)
+    const transports = Array.from(activeTransports.values());
+    const transport = transports[transports.length - 1];
+
     if (!transport) {
       res.status(400).json({ error: "No SSE transport connection established" });
       return;
     }
-    await transport.handlePostMessage(req, res);
+
+    try {
+      await transport.handlePostMessage(req, res);
+    } catch (error) {
+      console.error("Error handling message:", error);
+      res.status(500).json({ error: "Failed to handle message" });
+    }
   });
 
   // Start the HTTP server
