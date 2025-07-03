@@ -18,8 +18,8 @@ watchPatterns = [
 ]
 
 [deploy]
-# Start command to run the compiled MCP server
-startCommand = "node dist/main.js"
+# Start command to run the compiled MCP server in HTTP mode
+startCommand = "node dist/main.js --http"
 
 # Health check configuration
 healthcheckPath = "/health"
@@ -36,8 +36,8 @@ drainingSeconds = 10
 # Environment-specific configurations
 [environments.production]
 [environments.production.deploy]
-# Production-specific start command with optimizations
-startCommand = "NODE_ENV=production node dist/main.js"
+# Production-specific start command with optimizations (HTTP mode)
+startCommand = "NODE_ENV=production node dist/main.js --http"
 
 # Longer health check timeout for production
 healthcheckTimeout = 120
@@ -48,8 +48,8 @@ restartPolicyMaxRetries = 5
 
 [environments.staging]
 [environments.staging.deploy]
-# Staging environment with debug logging
-startCommand = "NODE_ENV=staging DEBUG=* node dist/main.js"
+# Staging environment with debug logging (HTTP mode)
+startCommand = "NODE_ENV=staging DEBUG=* node dist/main.js --http"
 
 # Shorter timeout for faster iteration in staging
 healthcheckTimeout = 30
