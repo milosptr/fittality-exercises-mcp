@@ -153,6 +153,47 @@ Add this server to your Claude Desktop configuration:
 }
 ```
 
+### Claude Web Integration (OAuth 2.0)
+
+The server supports OAuth 2.0 for Claude Web integration. When deployed, Claude Web can connect using these OAuth endpoints:
+
+#### OAuth Endpoints
+
+- **OAuth Metadata**: `/.well-known/oauth-authorization-server`
+- **Authorization**: `/authorize`
+- **Token Exchange**: `/token`
+- **Token Revocation**: `/revoke`
+
+#### OAuth Configuration
+
+Set these environment variables for secure operation:
+
+```bash
+CLAUDE_CLIENT_SECRET=your-secure-secret-here
+BASE_URL=https://your-deployed-server.com
+```
+
+#### Protected MCP Endpoints
+
+Claude Web accesses MCP functionality through OAuth-protected endpoints:
+
+- **SSE Connection**: `/mcp/sse` (requires Bearer token)
+- **Message Handling**: `/mcp/messages` (requires Bearer token)
+
+#### OAuth Flow
+
+1. Claude Web redirects to `/authorize?client_id=claude-web&response_type=code`
+2. Server auto-approves and redirects back with authorization code
+3. Claude Web exchanges code for access token at `/token`
+4. Access token authenticates subsequent MCP requests
+
+**OAuth Features:**
+- Authorization Code flow
+- Bearer token authentication
+- 1-hour token expiration
+- Token revocation support
+- Pre-configured for Claude Web client
+
 ### Basic Examples
 
 #### Search for exercises

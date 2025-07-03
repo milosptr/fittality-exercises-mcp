@@ -13,6 +13,7 @@ import { registerLookupTools } from "./tools/lookup-tools.js";
 import { registerFilterTools } from "./tools/filter-tools.js";
 import { registerMetadataTools } from "./tools/metadata-tools.js";
 import { registerHealthTools } from "./tools/health-tools.js";
+import { oauthHandlers } from "./oauth/simple-oauth.js";
 
 // Load exercise data on startup
 await loadExercises();
@@ -162,6 +163,27 @@ if (isStdioMode) {
         timestamp: new Date().toISOString()
       });
     }
+  });
+
+  // OAuth 2.0 Authorization Server endpoints for Claude Web
+  app.get("/.well-known/oauth-authorization-server", oauthHandlers.metadata);
+  app.get("/authorize", oauthHandlers.authorize);
+  app.post("/token", oauthHandlers.token);
+  app.post("/revoke", oauthHandlers.revoke);
+
+  // Protected MCP endpoints for Claude Web (require OAuth)
+  app.get("/mcp/sse", oauthHandlers.validateToken, async (req, res) => {
+    console.error("New OAuth-protected SSE connection established");
+    transport = new SSEServerTransport("/mcp/messages", res);
+    await server.connect(transport);
+  });
+
+  app.post("/mcp/messages", oauthHandlers.validateToken, async (req, res) => {
+    if (!transport) {
+      res.status(400).json({ error: "No SSE transport connection established" });
+      return;
+    }
+    await transport.handlePostMessage(req, res);
   });
 
   // SSE endpoint for MCP communication
