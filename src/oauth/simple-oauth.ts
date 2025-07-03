@@ -26,7 +26,10 @@ export const oauthHandlers = {
 
   // Authorization endpoint
   authorize: (req: any, res: any) => {
-    const { client_id, redirect_uri, response_type, state, code_challenge, code_challenge_method } = req.query;
+    try {
+      console.log('Authorization endpoint query params:', JSON.stringify(req.query, null, 2));
+
+      const { client_id, redirect_uri, response_type, state, code_challenge, code_challenge_method } = req.query;
 
     if (!client_id || response_type !== 'code') {
       res.status(400).json({ error: 'invalid_request' });
@@ -55,15 +58,29 @@ export const oauthHandlers = {
     if (state) redirectUrl.searchParams.set('state', state);
 
     res.redirect(redirectUrl.toString());
+    } catch (error) {
+      console.error('Authorization endpoint error:', error);
+      res.status(500).json({ error: 'server_error', error_description: 'Internal server error' });
+    }
   },
 
     // Token endpoint
   token: (req: any, res: any) => {
     try {
+      console.log('Token endpoint request body:', JSON.stringify(req.body, null, 2));
+
+      // Ensure request body exists and is properly parsed
+      if (!req.body || typeof req.body !== 'object') {
+        console.error('Invalid request body:', req.body);
+        res.status(400).json({ error: 'invalid_request', error_description: 'Invalid request body' });
+        return;
+      }
+
       const { grant_type, code, client_id, client_secret, code_verifier } = req.body;
 
       if (grant_type !== 'authorization_code' || !code || !client_id) {
-        res.status(400).json({ error: 'invalid_request' });
+        console.error('Missing required parameters:', { grant_type, code: !!code, client_id: !!client_id });
+        res.status(400).json({ error: 'invalid_request', error_description: 'Missing required parameters' });
         return;
       }
 
@@ -92,7 +109,23 @@ export const oauthHandlers = {
         if (codeData.codeChallengeMethod === 'S256') {
           try {
             const hash = crypto.createHash('sha256').update(code_verifier, 'utf8').digest();
-            const challengeFromVerifier = hash.toString('base64url');
+
+            // Use base64url encoding with fallback for older Node.js versions
+            let challengeFromVerifier: string;
+            try {
+              challengeFromVerifier = hash.toString('base64url');
+            } catch (base64urlError) {
+              // Fallback: manual base64url conversion
+              challengeFromVerifier = hash.toString('base64')
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=/g, '');
+            }
+
+            console.log('PKCE Debug - Expected challenge:', codeData.codeChallenge);
+            console.log('PKCE Debug - Computed challenge:', challengeFromVerifier);
+            console.log('PKCE Debug - Code verifier:', code_verifier);
+
             if (challengeFromVerifier !== codeData.codeChallenge) {
               res.status(400).json({ error: 'invalid_grant', error_description: 'invalid code_verifier' });
               return;

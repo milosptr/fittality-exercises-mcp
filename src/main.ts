@@ -139,7 +139,16 @@ if (isStdioMode) {
 
   // Create Express app for SSE transport
   const app = express();
-  app.use(express.json());
+
+  // Enhanced body parsing middleware
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+  // Add request logging middleware
+  app.use((req, res, next) => {
+    console.log(`${req.method} ${req.path} - Content-Type: ${req.headers['content-type']}`);
+    next();
+  });
 
   let transport: SSEServerTransport | undefined = undefined;
 
