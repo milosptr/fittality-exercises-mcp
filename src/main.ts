@@ -13,7 +13,6 @@ import { registerLookupTools } from "./tools/lookup-tools.js";
 import { registerFilterTools } from "./tools/filter-tools.js";
 import { registerMetadataTools } from "./tools/metadata-tools.js";
 import { registerHealthTools } from "./tools/health-tools.js";
-import { oauthHandlers } from "./oauth/simple-oauth.js";
 
 // Load exercise data on startup
 await loadExercises();
@@ -174,14 +173,8 @@ if (isStdioMode) {
     }
   });
 
-  // OAuth 2.0 Authorization Server endpoints for Claude Web
-  app.get("/.well-known/oauth-authorization-server", oauthHandlers.metadata);
-  app.get("/authorize", oauthHandlers.authorize);
-  app.post("/token", oauthHandlers.token);
-  app.post("/revoke", oauthHandlers.revoke);
-
-    // Root MCP endpoint for Claude Web (requires OAuth)
-  app.post("/", oauthHandlers.validateToken, async (req, res) => {
+  // Root MCP endpoint for Claude Web (publicly accessible)
+  app.post("/", async (req, res) => {
     console.error("Claude Web MCP request to root endpoint:", JSON.stringify(req.body, null, 2));
 
     // Handle JSON-RPC MCP requests
@@ -240,14 +233,14 @@ if (isStdioMode) {
     }
   });
 
-  // Protected MCP endpoints for Claude Web (require OAuth)
-  app.get("/mcp/sse", oauthHandlers.validateToken, async (req, res) => {
-    console.error("New OAuth-protected SSE connection established");
+  // MCP endpoints for Claude Web (publicly accessible)
+  app.get("/mcp/sse", async (req, res) => {
+    console.error("New SSE connection established");
     transport = new SSEServerTransport("/mcp/messages", res);
     await server.connect(transport);
   });
 
-  app.post("/mcp/messages", oauthHandlers.validateToken, async (req, res) => {
+  app.post("/mcp/messages", async (req, res) => {
     if (!transport) {
       res.status(400).json({ error: "No SSE transport connection established" });
       return;
