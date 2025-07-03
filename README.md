@@ -188,11 +188,14 @@ Claude Web accesses MCP functionality through OAuth-protected endpoints:
 4. Access token authenticates subsequent MCP requests
 
 **OAuth Features:**
-- Authorization Code flow
+- Authorization Code flow with PKCE (Proof Key for Code Exchange)
+- S256 code challenge method support
 - Bearer token authentication
 - 1-hour token expiration
 - Token revocation support
-- Pre-configured for Claude Web client
+- Dynamic Claude Web client ID support (`exercise-mcp-client-*`)
+- Multiple supported scopes: `claudeai`, `mcp:read`, `mcp:write`
+- Correct redirect URI: `https://claude.ai/api/mcp/auth_callback`
 
 ### Basic Examples
 
