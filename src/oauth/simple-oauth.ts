@@ -3,7 +3,7 @@ import crypto from 'crypto';
 
 // In-memory storage
 const tokens = new Map<string, { expires: number; client: string }>();
-const codes = new Map<string, { expires: number; client: string }>();
+const codes = new Map<string, { expires: number; client: string; codeChallenge?: string; codeChallengeMethod?: string }>();
 
 const CLIENT_SECRET = process.env.CLAUDE_CLIENT_SECRET || 'demo-secret-change-in-production';
 const BASE_URL = process.env.BASE_URL || 'https://fittality-exercises-mcp-production.up.railway.app';
@@ -18,21 +18,23 @@ export const oauthHandlers = {
       revocation_endpoint: `${BASE_URL}/revoke`,
       supported_response_types: ['code'],
       supported_grant_types: ['authorization_code'],
-      supported_scopes: ['mcp:read', 'mcp:write'],
+      supported_scopes: ['claudeai', 'mcp:read', 'mcp:write'],
+      code_challenge_methods_supported: ['S256'],
       token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post']
     });
   },
 
   // Authorization endpoint
   authorize: (req: any, res: any) => {
-    const { client_id, redirect_uri, response_type, state } = req.query;
+    const { client_id, redirect_uri, response_type, state, code_challenge, code_challenge_method } = req.query;
 
     if (!client_id || response_type !== 'code') {
       res.status(400).json({ error: 'invalid_request' });
       return;
     }
 
-    if (client_id !== 'claude-web') {
+    // Accept any Claude Web client ID (they seem to generate unique IDs)
+    if (!client_id.toString().startsWith('exercise-mcp-client-') && client_id !== 'claude-web') {
       res.status(400).json({ error: 'invalid_client' });
       return;
     }
@@ -41,11 +43,14 @@ export const oauthHandlers = {
     const code = crypto.randomBytes(32).toString('hex');
     codes.set(code, {
       expires: Date.now() + 600000, // 10 minutes
-      client: client_id
+      client: client_id,
+      codeChallenge: code_challenge,
+      codeChallengeMethod: code_challenge_method
     });
 
-    // Redirect with code
-    const redirectUrl = new URL(redirect_uri || 'https://claude.ai/oauth/callback');
+        // Redirect with code - use Claude Web's actual callback URI
+    const defaultRedirectUri = 'https://claude.ai/api/mcp/auth_callback';
+    const redirectUrl = new URL(redirect_uri || defaultRedirectUri);
     redirectUrl.searchParams.set('code', code);
     if (state) redirectUrl.searchParams.set('state', state);
 
@@ -54,14 +59,16 @@ export const oauthHandlers = {
 
   // Token endpoint
   token: (req: any, res: any) => {
-    const { grant_type, code, client_id, client_secret } = req.body;
+    const { grant_type, code, client_id, client_secret, code_verifier } = req.body;
 
     if (grant_type !== 'authorization_code' || !code || !client_id) {
       res.status(400).json({ error: 'invalid_request' });
       return;
     }
 
-    if (client_id !== 'claude-web' || client_secret !== CLIENT_SECRET) {
+    // Accept Claude Web client IDs
+    const isValidClient = client_id === 'claude-web' || client_id.toString().startsWith('exercise-mcp-client-');
+    if (!isValidClient) {
       res.status(401).json({ error: 'invalid_client' });
       return;
     }
@@ -70,6 +77,36 @@ export const oauthHandlers = {
     if (!codeData || Date.now() > codeData.expires) {
       res.status(400).json({ error: 'invalid_grant' });
       return;
+    }
+
+    // Validate authentication: either client_secret or PKCE
+    if (codeData.codeChallenge) {
+      // PKCE flow - validate code_verifier
+      if (!code_verifier) {
+        res.status(400).json({ error: 'invalid_request', error_description: 'code_verifier required for PKCE' });
+        return;
+      }
+
+      // For S256, we need to hash the verifier and compare with challenge
+      if (codeData.codeChallengeMethod === 'S256') {
+        const hash = crypto.createHash('sha256').update(code_verifier).digest();
+        const challengeFromVerifier = hash.toString('base64url');
+        if (challengeFromVerifier !== codeData.codeChallenge) {
+          res.status(400).json({ error: 'invalid_grant', error_description: 'invalid code_verifier' });
+          return;
+        }
+      } else if (codeData.codeChallengeMethod === 'plain') {
+        if (code_verifier !== codeData.codeChallenge) {
+          res.status(400).json({ error: 'invalid_grant', error_description: 'invalid code_verifier' });
+          return;
+        }
+      }
+    } else {
+      // Traditional client_secret flow
+      if (client_secret !== CLIENT_SECRET) {
+        res.status(401).json({ error: 'invalid_client' });
+        return;
+      }
     }
 
     // Generate access token
