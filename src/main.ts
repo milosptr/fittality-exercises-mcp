@@ -149,8 +149,9 @@ if (isStdioMode) {
     next();
   });
 
-  // Simple global transport - works for single client connections
+  // Transport and message buffering for handling race conditions
   let currentTransport: SSEServerTransport | null = null;
+  const pendingMessages: Array<{ req: express.Request; res: express.Response }> = [];
 
   // Health check endpoint
   app.get("/health", async (req, res) => {
@@ -234,7 +235,7 @@ if (isStdioMode) {
     }
   });
 
-    // MCP endpoints for Claude Web (publicly accessible)
+      // MCP endpoints for Claude Web (publicly accessible)
   app.get("/mcp/sse", async (req, res) => {
     try {
       console.error("New MCP SSE connection established");
@@ -243,20 +244,52 @@ if (isStdioMode) {
       // Clean up on disconnect
       req.on('close', () => {
         currentTransport = null;
+        // Clear any pending messages
+        pendingMessages.splice(0).forEach(({ res: pendingRes }) => {
+          if (!pendingRes.headersSent) {
+            pendingRes.status(400).json({ error: "SSE connection closed" });
+          }
+        });
         console.error("MCP SSE connection closed");
       });
 
       await server.connect(currentTransport);
+
+      // Process any buffered messages
+      console.error(`Processing ${pendingMessages.length} buffered MCP messages`);
+      const messagesToProcess = pendingMessages.splice(0); // Clear the buffer
+
+      for (const { req: msgReq, res: msgRes } of messagesToProcess) {
+        try {
+          await currentTransport.handlePostMessage(msgReq, msgRes);
+        } catch (error) {
+          console.error("Error processing buffered MCP message:", error);
+          if (!msgRes.headersSent) {
+            msgRes.status(500).json({ error: "Failed to process buffered message" });
+          }
+        }
+      }
     } catch (error) {
       console.error("Error establishing MCP SSE connection:", error);
       currentTransport = null;
+
+      // Handle any pending messages with error
+      pendingMessages.splice(0).forEach(({ res: pendingRes }) => {
+        if (!pendingRes.headersSent) {
+          pendingRes.status(500).json({ error: "Failed to establish SSE connection" });
+        }
+      });
+
       res.status(500).json({ error: "Failed to establish SSE connection" });
     }
   });
 
-  app.post("/mcp/messages", async (req, res) => {
+    app.post("/mcp/messages", async (req, res) => {
     if (!currentTransport) {
-      res.status(400).json({ error: "No SSE transport connection established" });
+      // Buffer the message until SSE connection is established
+      console.error("Buffering MCP message - SSE connection not yet established");
+      pendingMessages.push({ req, res });
+      // Don't respond yet - wait for SSE connection
       return;
     }
 
@@ -268,7 +301,7 @@ if (isStdioMode) {
     }
   });
 
-  // SSE endpoint for MCP communication
+    // SSE endpoint for MCP communication
   app.get("/sse", async (req, res) => {
     try {
       console.error("New SSE connection established");
@@ -277,21 +310,53 @@ if (isStdioMode) {
       // Clean up on disconnect
       req.on('close', () => {
         currentTransport = null;
+        // Clear any pending messages
+        pendingMessages.splice(0).forEach(({ res: pendingRes }) => {
+          if (!pendingRes.headersSent) {
+            pendingRes.status(400).json({ error: "SSE connection closed" });
+          }
+        });
         console.error("SSE connection closed");
       });
 
       await server.connect(currentTransport);
+
+      // Process any buffered messages
+      console.error(`Processing ${pendingMessages.length} buffered messages`);
+      const messagesToProcess = pendingMessages.splice(0); // Clear the buffer
+
+      for (const { req: msgReq, res: msgRes } of messagesToProcess) {
+        try {
+          await currentTransport.handlePostMessage(msgReq, msgRes);
+        } catch (error) {
+          console.error("Error processing buffered message:", error);
+          if (!msgRes.headersSent) {
+            msgRes.status(500).json({ error: "Failed to process buffered message" });
+          }
+        }
+      }
     } catch (error) {
       console.error("Error establishing SSE connection:", error);
       currentTransport = null;
+
+      // Handle any pending messages with error
+      pendingMessages.splice(0).forEach(({ res: pendingRes }) => {
+        if (!pendingRes.headersSent) {
+          pendingRes.status(500).json({ error: "Failed to establish SSE connection" });
+        }
+      });
+
       res.status(500).json({ error: "Failed to establish SSE connection" });
     }
   });
 
-  // POST endpoint for handling MCP messages
+    // POST endpoint for handling MCP messages
   app.post("/messages", async (req, res) => {
     if (!currentTransport) {
-      res.status(400).json({ error: "No SSE transport connection established" });
+      // Buffer the message until SSE connection is established
+      console.error("Buffering message - SSE connection not yet established");
+      pendingMessages.push({ req, res });
+      // Don't respond yet - wait for SSE connection
       return;
     }
 
