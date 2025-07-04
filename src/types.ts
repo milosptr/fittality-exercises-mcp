@@ -9,12 +9,14 @@ export interface Exercise {
   secondaryMuscles: string[];
   instructions: string[];
   images: string[];
+  tags: string[];
 }
 
 export interface SearchCriteria {
   equipment?: string;
   category?: string;
   primaryMuscles?: string[];
+  tags?: string[];
   query?: string;
   limit?: number;
 }

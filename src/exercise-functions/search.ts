@@ -35,6 +35,13 @@ export async function searchExercises(criteria: SearchCriteria): Promise<Exercis
     );
   }
 
+  // Filter by tags
+  if (criteria.tags && criteria.tags.length > 0) {
+    results = results.filter(exercise =>
+      criteria.tags!.every(tag => exercise.tags?.includes(tag))
+    );
+  }
+
   // General text search
   if (criteria.query) {
     const searchTerm = criteria.query.toLowerCase();

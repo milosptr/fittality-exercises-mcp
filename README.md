@@ -49,6 +49,7 @@ The [Model Context Protocol (MCP)](https://github.com/modelcontextprotocol/docs)
 - **15+ exercise categories** (chest, back, legs, abs, etc.)
 - **50+ muscle groups** for targeted workouts
 - **Apple HealthKit integration** with proper categories
+- **Searchable tags for goals, equipment, and workout types**
 
 ### Search & Filtering
 - **Text search** across exercise names and instructions
@@ -418,7 +419,7 @@ fittality-exercises-mcp/
 │       ├── metadata-tools.ts      # Resource listings
 │       └── health-tools.ts        # Health monitoring
 ├── data/
-│   └── exercises.json             # Exercise database (1.2MB)
+│   └── exercises.json             # Exercise database with tag metadata (1.2MB)
 ├── dist/                          # Compiled JavaScript
 ├── package.json                   # Project configuration
 ├── tsconfig.json                  # TypeScript configuration
